@@ -15,6 +15,9 @@ declare module 'vue' {
     ElIcon: typeof import('element-plus/es')['ElIcon']
     ElInput: typeof import('element-plus/es')['ElInput']
     HelloWorld: typeof import('./src/components/HelloWorld.vue')['default']
+    InputController: typeof import('./src/components/InputController.vue')['default']
+    MessageList: typeof import('./src/components/MessageList.vue')['default']
+    ModelConfigDialog: typeof import('./src/components/ModelConfigDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
   }

@@ -1,92 +1,25 @@
 <template>
   <div class="home-container">
     <!-- 消息显示区域 -->
-    <div class="messages">
-      <template
-        v-for="(item, index) in groupedMessages"
-        :key="index"
-      >
-        <!-- 合并消息卡片 (AI+INFO) -->
-        <div
-          v-if="item.type === 'combined'"
-          class="combined-card"
-        >
-          <div
-            v-for="(msg, idx) in item.messages"
-            :key="idx"
-            class="message-item"
-            :class="`type-${msg.type}`"
-          >
-            <div class="message-content">{{ msg.text }}</div>
-          </div>
-        </div>
-
-        <!-- 独立消息 -->
-        <div
-          v-else
-          :class="['message', `type-${item.type}`]"
-        >
-          <div class="message-content">{{ item.messages[0].text }}</div>
-        </div>
-      </template>
-    </div>
+    <MessageList :grouped-messages="groupedMessages" />
 
     <!-- 模型指令绘制区域 -->
 
     <!-- 底部输入区域 -->
-    <div class="input-area">
-      <!-- 模型配置按钮 -->
-      <el-button
-        @click="openConfigDialog"
-        class="config-btn"
-        icon="el-icon-setting"
-      />
-
-      <el-input
-        v-model="inputText"
-        placeholder="请输入内容"
-        @keyup.enter="sendMessage"
-        class="input-box"
-      />
-      <el-button
-        :type="isRecording?'primary':'info'"
-        @click="startSpeechRecognition"
-        class="voice-btn"
-      >
-        {{ isRecording ? "🛑" : "🎤" }}
-      </el-button>
-    </div>
+    <InputController
+      v-model="inputText"
+      @send="sendMessage"
+      @start-recording="startSpeechRecognition"
+      @open-config="openConfigDialog"
+    />
 
     <!-- 模型配置对话框 -->
-    <el-dialog
-      v-model="configDialogVisible"
-      title="模型配置"
-      width="30%"
-    >
-      <el-form :model="modelConfig">
-        <el-form-item label="API URL">
-          <el-input v-model="modelConfig.url" />
-        </el-form-item>
-        <el-form-item label="模型名称">
-          <el-input v-model="modelConfig.model" />
-        </el-form-item>
-        <el-form-item label="API Key">
-          <el-input
-            v-model="modelConfig.apiKey"
-            type="password"
-            show-password
-            placeholder="输入API密钥"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="configDialogVisible = false">取消</el-button>
-        <el-button
-          type="primary"
-          @click="saveModelConfig"
-        >保存</el-button>
-      </template>
-    </el-dialog>
+    <ModelConfigDialog
+      :visible="configDialogVisible"
+      :config="modelConfig"
+      @update:visible="configDialogVisible = $event"
+      @save="saveModelConfig"
+    />
   </div>
   <div
     id="model-instructions"
@@ -100,11 +33,15 @@
 import { ref, onBeforeUnmount, computed, onMounted } from "vue";
 import axios from "axios";
 import Recorder from "recorder-core";
+import MessageList from "../components/MessageList.vue";
+import InputController from "../components/InputController.vue";
+import ModelConfigDialog from "../components/ModelConfigDialog.vue";
+
 // 导入PCM编码器
 import "recorder-core/src/engine/pcm";
 
 const inputText = ref("");
-const messages = ref<{ text: string; type: string }[]>([]);
+const messages = ref<{ text: string; type: string; duration?: number }[]>([]);
 const isRecording = ref(false);
 const status = ref("idle");
 const configDialogVisible = ref(false);
@@ -116,7 +53,7 @@ const modelConfig = ref({
 
 interface MessageGroup {
   type: string;
-  messages: { text: string; type: string }[];
+  messages: { text: string; type: string; duration?: number }[];
 }
 
 // 消息分组计算属性 - 支持连续非用户消息自动合并
@@ -262,27 +199,40 @@ const sendMessage = async () => {
   const userMessage = inputText.value;
   inputText.value = "";
 
+  // 记录请求开始时间
+  const startTime = Date.now();
+
   try {
     // 获取已有的元素（删除未使用变量）
     document.querySelectorAll("#model-instructions");
-    const check1 = await axios.post(
-      "http://127.0.0.1:1234/v1/chat/completions",
-      {
-        model: "qwen3-0.6b",
-        messages: [
-          {
-            role: "system",
-            content: `请判断如下语句中是否存在对页面元素的操作？只输出 是 或者 否，不要输出其余任何内容`,
-          },
-          { role: "user", content: userMessage },
-        ],
-        temperature: 0.7,
-        max_tokens: -1,
-        stream: false,
-      }
-    );
-    const check_result =
-      check1.data.choices[0].message.content.indexOf("是") !== -1;
+    let check_result = false;
+    try {
+      // 固定使用本地小模型
+      const check1 = await axios.post(
+        "http://127.0.0.1:1234/v1/chat/completions",
+        {
+          model: "qwen3-0.6b",
+          messages: [
+            {
+              role: "system",
+              content: `请判断如下语句中是否存在对页面元素的操作？只输出 是 或者 否，不要输出其余任何内容`,
+            },
+            { role: "user", content: userMessage + "/no_think" },
+          ],
+          temperature: 0.7,
+          max_tokens: -1,
+          stream: false,
+        }
+      );
+      check_result =
+        check1.data.choices[0].message.content.indexOf("是") !== -1;
+    } catch (error) {
+      console.error("检查请求失败:", error);
+      messages.value.push({
+        text: "检查请求失败，继续发送消息",
+        type: "warning",
+      });
+    }
 
     // 准备请求头
     const headers: Record<string, string> = {
@@ -332,7 +282,14 @@ const sendMessage = async () => {
       .replace("```", "")
       .trim();
     const aiType = detectMessageType(deal_aiResponse);
-    messages.value.push({ text: deal_aiResponse, type: aiType });
+
+    // 计算处理耗时
+    const duration = Date.now() - startTime;
+    messages.value.push({
+      text: deal_aiResponse,
+      type: aiType,
+      duration: duration,
+    });
 
     // 处理可能的指令
     handleInstructions(deal_aiResponse);
@@ -641,126 +598,5 @@ const queryElement = () => {
   background: #f0f0f0;
   position: relative;
   flex-shrink: 0;
-}
-
-.messages {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-/* 基础消息样式 */
-.message,
-.message-item {
-  display: flex;
-  margin-bottom: 8px;
-  align-items: flex-start;
-}
-
-/* 类型颜色区分 */
-.type-user {
-  color: #1a73e8;
-  align-self: flex-end;
-}
-
-.type-ai {
-  color: #202124;
-  align-self: flex-start;
-}
-
-.type-info {
-  color: #0b8043;
-  align-self: flex-start;
-}
-
-.type-error {
-  color: #d93025;
-  align-self: center;
-}
-
-/* 合并卡片样式 */
-.combined-card {
-  border: 1px solid #dadce0;
-  border-radius: 12px;
-  display: inline-block;
-  height: auto;
-  margin-bottom: 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  align-self: flex-start;
-  max-width: 80%;
-}
-
-.combined-card .message-item {
-  padding: 8px 12px;
-  margin-bottom: 0;
-  border-bottom: 1px solid #f1f3f4;
-}
-
-.combined-card .message-item:last-child {
-  border-bottom: none;
-}
-
-/* 消息内容样式 */
-.message-content {
-  padding: 4px 12px;
-  border-radius: 18px;
-  font-size: 14px;
-  line-height: 1.5;
-  background: #f8f9fa;
-}
-
-.type-user .message-content {
-  background: linear-gradient(to bottom right, #4e54c8, #8f94fb);
-  color: white;
-  border-bottom-right-radius: 0;
-}
-
-.type-ai .message-content {
-  background: #ffffff;
-  color: #333;
-  border: 1px solid #dadce0;
-  border-bottom-left-radius: 0;
-}
-
-.type-info .message-content {
-  background: #e8f5e9;
-  color: #0b8043;
-}
-
-.type-instruction .message-content {
-  background: #f0f0f0;
-  border: 1px solid #ccc;
-  font-style: italic;
-  font-size: 0.6em;
-  line-height: 1.6em;
-  font-family: monospace; /* 添加等宽字体更清晰 */
-}
-
-.type-error .message-content {
-  background: #ffebee;
-  color: #d93025;
-}
-
-.input-area {
-  display: flex;
-  padding: 10px;
-  background: #fff;
-  border-top: 1px solid #eee;
-}
-
-.config-btn {
-  margin-right: 10px;
-}
-
-.input-box {
-  flex: 1;
-  margin-right: 10px;
-}
-
-.voice-btn {
-  width: auto;
-  padding: 0 15px;
 }
 </style>
