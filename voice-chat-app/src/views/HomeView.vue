@@ -2,32 +2,33 @@
   <div class="home-container">
     <!-- 消息显示区域 -->
     <div class="messages">
-      <div
-        v-for="(msg, index) in messages"
+      <template
+        v-for="(item, index) in groupedMessages"
         :key="index"
-        :class="['message', `message-${msg.type}`]"
       >
-        <div class="message-header">
+        <!-- 合并消息卡片 (AI+INFO) -->
+        <div
+          v-if="item.type === 'combined'"
+          class="combined-card"
+        >
           <div
-            class="avatar"
-            :class="`avatar-${msg.type}`"
+            v-for="(msg, idx) in item.messages"
+            :key="idx"
+            class="message-item"
+            :class="`type-${msg.type}`"
           >
-            <i
-              v-if="msg.type === 'user'"
-              class="el-icon-user"
-            ></i>
-            <i
-              v-else-if="msg.type === 'ai'"
-              class="el-icon-robot"
-            ></i>
-            <i
-              v-else
-              class="el-icon-info"
-            ></i>
+            <div class="message-content">{{ msg.text }}</div>
           </div>
-          <div class="message-content">{{ msg.text }}</div>
         </div>
-      </div>
+
+        <!-- 独立消息 -->
+        <div
+          v-else
+          :class="['message', `type-${item.type}`]"
+        >
+          <div class="message-content">{{ item.messages[0].text }}</div>
+        </div>
+      </template>
     </div>
 
     <!-- 模型指令绘制区域 -->
@@ -59,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount } from "vue";
+import { ref, onBeforeUnmount, computed } from "vue";
 import axios from "axios";
 import Recorder from "recorder-core";
 // 导入PCM编码器
@@ -69,6 +70,56 @@ const inputText = ref("");
 const messages = ref<{ text: string; type: string }[]>([]);
 const isRecording = ref(false);
 const status = ref("idle");
+
+interface MessageGroup {
+  type: string;
+  messages: { text: string; type: string }[];
+}
+
+// 消息分组计算属性
+const groupedMessages = computed<MessageGroup[]>(() => {
+  const result: MessageGroup[] = [];
+  let currentGroup: MessageGroup | null = null;
+
+  for (const msg of messages.value) {
+    // 当上条是AI且当前是INFO时合并
+    if (currentGroup && currentGroup.type === "ai" && msg.type === "info") {
+      currentGroup.messages.push(msg);
+      continue;
+    }
+
+    // 结束当前分组
+    if (currentGroup) {
+      result.push({
+        ...currentGroup,
+        type: currentGroup.messages.length > 1 ? "combined" : currentGroup.type,
+      });
+      currentGroup = null;
+    }
+
+    // 创建新分组
+    if (msg.type === "ai") {
+      currentGroup = { type: "ai", messages: [msg] };
+    } else {
+      // 独立消息也包装成MessageGroup
+      result.push({
+        type: msg.type,
+        messages: [msg],
+      });
+    }
+  }
+
+  // 添加最后一个分组
+  if (currentGroup) {
+    result.push({
+      ...currentGroup,
+      type: currentGroup.messages.length > 1 ? "combined" : currentGroup.type,
+    });
+  }
+
+  return result;
+});
+
 let recognition: WebSocket | null = null;
 let recorder: any = null;
 let audioContext: AudioContext | null = null;
@@ -139,11 +190,19 @@ const sendMessage = async () => {
     const check_result =
       check1.data.choices[0].message.content.indexOf("是") !== -1;
 
+    const model1 = {
+      // url: "http://192.168.31.125:1234/v1/chat/completions",
+      // model: "qwen3-8b",
+
+      url: "http://127.0.0.1:1234/v1/chat/completions",
+      model: "qwen3-0.6b",
+    };
+
     // 发送消息到LMStudio (添加请求头和完整参数)
     const response = await axios.post(
-      "http://192.168.31.125:1234/v1/chat/completions",
+      model1.url,
       {
-        model: "qwen3-8b",
+        model: model1.model,
         messages: [
           {
             role: "system",
@@ -151,11 +210,12 @@ const sendMessage = async () => {
           },
           {
             role: "user",
-            content: check_result
-              ? `当前页面内容为【${queryElement()}】
+            content:
+              (check_result
+                ? `当前页面内容为【${queryElement()}】
 
               ` + userMessage
-              : userMessage,
+                : userMessage) + "/no_think",
           },
         ],
         temperature: 0.7,
@@ -483,87 +543,86 @@ const queryElement = () => {
   flex-direction: column;
 }
 
-.message {
-  margin-bottom: 15px;
-  max-width: 80%;
+/* 基础消息样式 */
+.message,
+.message-item {
   display: flex;
-}
-
-.message-header {
-  display: flex;
+  margin-bottom: 8px;
   align-items: flex-start;
 }
 
-.message-user {
+/* 类型颜色区分 */
+.type-user {
+  color: #1a73e8;
   align-self: flex-end;
 }
 
-.message-ai {
+.type-ai {
+  color: #202124;
   align-self: flex-start;
 }
 
-.message-info,
-.message-error {
+.type-info {
+  color: #0b8043;
+  align-self: flex-start;
+}
+
+.type-error {
+  color: #d93025;
   align-self: center;
 }
 
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 10px;
-  flex-shrink: 0;
+/* 合并卡片样式 */
+.combined-card {
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  display: inline-block;
+  height: auto;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  align-self: flex-start;
+  max-width: 80%;
 }
 
-.avatar-user {
-  background: linear-gradient(to bottom right, #4e54c8, #8f94fb);
-  color: white;
+.combined-card .message-item {
+  padding: 8px 12px;
+  margin-bottom: 0;
+  border-bottom: 1px solid #f1f3f4;
 }
 
-.avatar-ai {
-  background: linear-gradient(to bottom right, #f5f7fa, #e4e7eb);
-  color: #333;
+.combined-card .message-item:last-child {
+  border-bottom: none;
 }
 
-.avatar-info {
-  background: #e6f7ff;
-  color: #1890ff;
-}
-
-.avatar-error {
-  background: #fff1f0;
-  color: #f5222d;
-}
-
+/* 消息内容样式 */
 .message-content {
   padding: 10px 15px;
   border-radius: 18px;
   line-height: 1.5;
+  background: #f8f9fa;
 }
 
-.message-user .message-content {
+.type-user .message-content {
   background: linear-gradient(to bottom right, #4e54c8, #8f94fb);
   color: white;
   border-bottom-right-radius: 0;
 }
 
-.message-ai .message-content {
-  background: #f0f0f0;
+.type-ai .message-content {
+  background: #ffffff;
   color: #333;
+  border: 1px solid #dadce0;
   border-bottom-left-radius: 0;
 }
 
-.message-info .message-content {
-  background: #e6f7ff;
-  color: #1890ff;
+.type-info .message-content {
+  background: #e8f5e9;
+  color: #0b8043;
 }
 
-.message-error .message-content {
-  background: #fff1f0;
-  color: #f5222d;
+.type-error .message-content {
+  background: #ffebee;
+  color: #d93025;
 }
 
 .input-area {
