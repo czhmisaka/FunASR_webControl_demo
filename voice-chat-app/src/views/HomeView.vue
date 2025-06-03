@@ -34,8 +34,14 @@
     <!-- 模型指令绘制区域 -->
 
     <!-- 底部输入区域 -->
-    <div class="
-      input-area">
+    <div class="input-area">
+      <!-- 模型配置按钮 -->
+      <el-button
+        @click="openConfigDialog"
+        class="config-btn"
+        icon="el-icon-setting"
+      />
+
       <el-input
         v-model="inputText"
         placeholder="请输入内容"
@@ -50,6 +56,37 @@
         {{ isRecording ? "🛑" : "🎤" }}
       </el-button>
     </div>
+
+    <!-- 模型配置对话框 -->
+    <el-dialog
+      v-model="configDialogVisible"
+      title="模型配置"
+      width="30%"
+    >
+      <el-form :model="modelConfig">
+        <el-form-item label="API URL">
+          <el-input v-model="modelConfig.url" />
+        </el-form-item>
+        <el-form-item label="模型名称">
+          <el-input v-model="modelConfig.model" />
+        </el-form-item>
+        <el-form-item label="API Key">
+          <el-input
+            v-model="modelConfig.apiKey"
+            type="password"
+            show-password
+            placeholder="输入API密钥"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="configDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          @click="saveModelConfig"
+        >保存</el-button>
+      </template>
+    </el-dialog>
   </div>
   <div
     id="model-instructions"
@@ -60,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount, computed } from "vue";
+import { ref, onBeforeUnmount, computed, onMounted } from "vue";
 import axios from "axios";
 import Recorder from "recorder-core";
 // 导入PCM编码器
@@ -70,6 +107,12 @@ const inputText = ref("");
 const messages = ref<{ text: string; type: string }[]>([]);
 const isRecording = ref(false);
 const status = ref("idle");
+const configDialogVisible = ref(false);
+const modelConfig = ref({
+  url: "",
+  model: "",
+  apiKey: "",
+});
 
 interface MessageGroup {
   type: string;
@@ -136,7 +179,7 @@ const default_prompt = `
 }
 
 注意事项：
-
+用原始json格式输出，不要使用markdown标签包裹
 type 字段必须从可选值中选择，严禁自定义（如错误写成 "dom-create"）
 payload 字段必填规则：
 dom/create：必须包含 tag、content，attrs 可选（如 {style: "color: red"}）
@@ -156,7 +199,52 @@ onBeforeUnmount(() => {
   stopRecording();
 });
 
-// 检测消息类型
+// 初始化模型配置
+onMounted(() => {
+  loadModelConfig();
+});
+
+// 加载模型配置
+const loadModelConfig = () => {
+  const savedConfig = localStorage.getItem("modelConfig");
+  if (savedConfig) {
+    try {
+      modelConfig.value = JSON.parse(savedConfig);
+    } catch (e) {
+      console.error("配置解析失败，使用默认配置", e);
+      setDefaultConfig();
+    }
+  } else {
+    setDefaultConfig();
+  }
+};
+
+// 设置默认配置
+const setDefaultConfig = () => {
+  modelConfig.value = {
+    url: "http://127.0.0.1:1234/v1/chat/completions",
+    model: "qwen3-0.6b",
+    apiKey: "",
+  };
+  localStorage.setItem("modelConfig", JSON.stringify(modelConfig.value));
+};
+
+// 打开配置对话框
+const openConfigDialog = () => {
+  configDialogVisible.value = true;
+};
+
+// 保存模型配置
+const saveModelConfig = () => {
+  localStorage.setItem("modelConfig", JSON.stringify(modelConfig.value));
+  configDialogVisible.value = false;
+  messages.value.push({
+    text: "模型配置已更新",
+    type: "info",
+  });
+};
+
+// @ts-ignore
 const detectMessageType = (text: string): string => {
   try {
     JSON.parse(text);
@@ -196,19 +284,21 @@ const sendMessage = async () => {
     const check_result =
       check1.data.choices[0].message.content.indexOf("是") !== -1;
 
-    const model1 = {
-      // url: "http://192.168.31.125:1234/v1/chat/completions",
-      // model: "qwen3-8b",
-
-      url: "http://127.0.0.1:1234/v1/chat/completions",
-      model: "qwen3-0.6b",
+    // 准备请求头
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
     };
 
-    // 发送消息到LMStudio (添加请求头和完整参数)
+    // 添加API Key认证
+    if (modelConfig.value.apiKey) {
+      headers["Authorization"] = `Bearer ${modelConfig.value.apiKey}`;
+    }
+
+    // 发送请求 (使用OpenAI兼容格式)
     const response = await axios.post(
-      model1.url,
+      modelConfig.value.url,
       {
-        model: model1.model,
+        model: modelConfig.value.model,
         messages: [
           {
             role: "system",
@@ -221,17 +311,17 @@ const sendMessage = async () => {
                 ? `当前页面内容为【${queryElement()}】
 
               ` + userMessage
-                : userMessage) + "/no_think",
+                : userMessage) +
+              `
+                /no_think`,
           },
         ],
         temperature: 0.7,
-        max_tokens: -1,
+        max_tokens: 4096, // 使用具体数值代替-1
         stream: false,
       },
       {
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: headers,
       }
     );
 
@@ -248,6 +338,7 @@ const sendMessage = async () => {
   }
 };
 
+// @ts-ignore
 const startSpeechRecognition = async () => {
   if (isRecording.value) {
     stopRecording();
@@ -278,7 +369,7 @@ const startSpeechRecognition = async () => {
         chunk_interval: 10,
         mode: "2pass",
       };
-      recognition?.send(JSON.stringify(config));
+      recognition!.send(JSON.stringify(config));
     };
 
     recognition.onmessage = (event) => {
@@ -323,7 +414,7 @@ const startSpeechRecognition = async () => {
         const array_48k = new Array(data_48k);
         const data_16k = Recorder.SampleData(array_48k, sampleRate, 16000).data;
 
-        recognition.send(new Int16Array(data_16k));
+        recognition!.send(new Int16Array(data_16k));
       },
     });
 
@@ -377,6 +468,7 @@ const stopRecording = () => {
   isRecording.value = false;
 };
 
+// @ts-ignore
 const handleInstructions = (response: string) => {
   const container = document.getElementById("model-instructions");
   if (!container) {
@@ -388,7 +480,10 @@ const handleInstructions = (response: string) => {
   }
 
   try {
-    const instruction = JSON.parse(response);
+    let rep = response.replace("```json", "");
+    rep = rep.replace("```", "");
+    rep = rep.trim();
+    const instruction = JSON.parse(rep);
 
     // 验证指令基本结构
     if (!instruction.type || !instruction.payload) {
@@ -652,6 +747,10 @@ const queryElement = () => {
   padding: 10px;
   background: #fff;
   border-top: 1px solid #eee;
+}
+
+.config-btn {
+  margin-right: 10px;
 }
 
 .input-box {
