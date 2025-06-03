@@ -3,8 +3,6 @@
     <!-- 消息显示区域 -->
     <MessageList :grouped-messages="groupedMessages" />
 
-    <!-- 模型指令绘制区域 -->
-
     <!-- 底部输入区域 -->
     <InputController
       v-model="inputText"
@@ -21,6 +19,8 @@
       @save="saveModelConfig"
     />
   </div>
+
+  <!-- 模型指令绘制区域 -->
   <div
     id="model-instructions"
     class="model-instructions"
@@ -598,5 +598,6 @@ const queryElement = () => {
   background: #f0f0f0;
   position: relative;
   flex-shrink: 0;
+  transition: all 1s ease-in-out;
 }
 </style>
