@@ -43,11 +43,11 @@
         class="input-box"
       />
       <el-button
-        type="primary"
+        :type="isRecording?'primary':'info'"
         @click="startSpeechRecognition"
         class="voice-btn"
       >
-        <i class="el-icon-microphone"></i>
+        {{ isRecording ? "🛑" : "🎤" }}
       </el-button>
     </div>
   </div>
@@ -76,45 +76,42 @@ interface MessageGroup {
   messages: { text: string; type: string }[];
 }
 
-// 消息分组计算属性
+// 消息分组计算属性 - 支持连续非用户消息自动合并
 const groupedMessages = computed<MessageGroup[]>(() => {
   const result: MessageGroup[] = [];
   let currentGroup: MessageGroup | null = null;
 
   for (const msg of messages.value) {
-    // 当上条是AI且当前是INFO时合并
-    if (currentGroup && currentGroup.type === "ai" && msg.type === "info") {
-      currentGroup.messages.push(msg);
-      continue;
-    }
-
-    // 结束当前分组
-    if (currentGroup) {
-      result.push({
-        ...currentGroup,
-        type: currentGroup.messages.length > 1 ? "combined" : currentGroup.type,
-      });
-      currentGroup = null;
-    }
-
-    // 创建新分组
-    if (msg.type === "ai") {
-      currentGroup = { type: "ai", messages: [msg] };
-    } else {
-      // 独立消息也包装成MessageGroup
+    // 用户消息总是独立分组
+    if (msg.type === "user") {
+      // 结束当前分组（如果有）
+      if (currentGroup) {
+        result.push(currentGroup);
+        currentGroup = null;
+      }
+      // 添加用户消息为独立分组
       result.push({
         type: msg.type,
         messages: [msg],
       });
+      continue;
+    }
+
+    // 非用户消息：尝试合并到当前分组
+    if (currentGroup) {
+      currentGroup.messages.push(msg);
+    } else {
+      // 创建新分组
+      currentGroup = {
+        type: "combined",
+        messages: [msg],
+      };
     }
   }
 
   // 添加最后一个分组
   if (currentGroup) {
-    result.push({
-      ...currentGroup,
-      type: currentGroup.messages.length > 1 ? "combined" : currentGroup.type,
-    });
+    result.push(currentGroup);
   }
 
   return result;
@@ -159,6 +156,16 @@ onBeforeUnmount(() => {
   stopRecording();
 });
 
+// 检测消息类型
+const detectMessageType = (text: string): string => {
+  try {
+    JSON.parse(text);
+    return "instruction";
+  } catch {
+    return text.includes("操作指令") ? "instruction" : "ai";
+  }
+};
+
 const sendMessage = async () => {
   if (!inputText.value.trim()) return;
 
@@ -168,9 +175,8 @@ const sendMessage = async () => {
   inputText.value = "";
 
   try {
-    // 获取已有的元素
-    const elements = document.querySelectorAll("#model-instructions");
-    console.log(elements, "elements");
+    // 获取已有的元素（删除未使用变量）
+    document.querySelectorAll("#model-instructions");
     const check1 = await axios.post(
       "http://127.0.0.1:1234/v1/chat/completions",
       {
@@ -231,7 +237,8 @@ const sendMessage = async () => {
 
     // 添加AI回复
     const aiResponse = response.data.choices[0].message.content;
-    messages.value.push({ text: aiResponse, type: "ai" });
+    const aiType = detectMessageType(aiResponse);
+    messages.value.push({ text: aiResponse, type: aiType });
 
     // 处理可能的指令
     handleInstructions(aiResponse);
@@ -492,6 +499,11 @@ const queryElement = () => {
   if (elements.length === 0) {
     messages.value.push({ text: "容器中没有元素", type: "info" });
     return;
+  } else {
+    messages.value.push({
+      text: `容器中有${elements.length}元素`,
+      type: "info",
+    });
   }
   // 转换 elements 数组为 array
   const elementsArray = Array.from(elements) as any[];
@@ -596,8 +608,9 @@ const queryElement = () => {
 
 /* 消息内容样式 */
 .message-content {
-  padding: 10px 15px;
+  padding: 4px 12px;
   border-radius: 18px;
+  font-size: 14px;
   line-height: 1.5;
   background: #f8f9fa;
 }
@@ -620,6 +633,15 @@ const queryElement = () => {
   color: #0b8043;
 }
 
+.type-instruction .message-content {
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  font-style: italic;
+  font-size: 0.6em;
+  line-height: 1.6em;
+  font-family: monospace; /* 添加等宽字体更清晰 */
+}
+
 .type-error .message-content {
   background: #ffebee;
   color: #d93025;
@@ -638,6 +660,7 @@ const queryElement = () => {
 }
 
 .voice-btn {
-  width: 40px;
+  width: auto;
+  padding: 0 15px;
 }
 </style>
