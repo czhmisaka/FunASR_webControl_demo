@@ -6,7 +6,7 @@
     <!-- 底部输入区域 -->
     <InputController
       v-model="inputText"
-      @send="sendMessage"
+      @send="handleManualSend"
       @start-recording="startSpeechRecognition"
       @open-config="openConfigDialog"
     />
@@ -43,6 +43,7 @@ import "recorder-core/src/engine/pcm";
 const inputText = ref("");
 const messages = ref<{ text: string; type: string; duration?: number }[]>([]);
 const isRecording = ref(false);
+const inputMode = ref<"manual" | "voice">("manual"); // 添加输入模式状态
 const status = ref("idle");
 const configDialogVisible = ref(false);
 const modelConfig = ref({
@@ -119,7 +120,7 @@ const default_prompt = `
 用原始json格式输出，不要使用markdown标签包裹
 type 字段必须从可选值中选择，严禁自定义（如错误写成 "dom-create"）
 payload 字段必填规则：
-dom/create：必须包含 tag、content，attrs 可选（如 {style: "color: red"}）
+dom/create：必须包含 tag、content，attrs 可选（如 {style: "color: red"}） 其中当你想删除某个属性，则需要把这属性的对应值改为none
 dom/modify：必须包含 selector、modifications（如 {textContent: "新文本"}）
 dom/delete：必须包含 selector（如 #footer 或 div.container）
 dom/query：必须包含 selector，查询结果通过 content 字段返回
@@ -160,7 +161,7 @@ const loadModelConfig = () => {
 const setDefaultConfig = () => {
   modelConfig.value = {
     url: "http://127.0.0.1:1234/v1/chat/completions",
-    model: "qwen3-0.6b",
+    model: "qwen3-8b",
     apiKey: "",
   };
   localStorage.setItem("modelConfig", JSON.stringify(modelConfig.value));
@@ -172,8 +173,8 @@ const openConfigDialog = () => {
 };
 
 // 保存模型配置
-const saveModelConfig = () => {
-  localStorage.setItem("modelConfig", JSON.stringify(modelConfig.value));
+const saveModelConfig = (e: any) => {
+  localStorage.setItem("modelConfig", JSON.stringify(e));
   configDialogVisible.value = false;
   messages.value.push({
     text: "模型配置已更新",
@@ -191,13 +192,12 @@ const detectMessageType = (text: string): string => {
   }
 };
 
-const sendMessage = async () => {
-  if (!inputText.value.trim()) return;
+// 发送文本消息
+const sendTextMessage = async (text: string) => {
+  if (!text.trim()) return;
 
-  // 添加用户消息
-  messages.value.push({ text: inputText.value, type: "user" });
-  const userMessage = inputText.value;
-  inputText.value = "";
+  messages.value.push({ text, type: "user" });
+  const userMessage = text;
 
   // 记录请求开始时间
   const startTime = Date.now();
@@ -299,6 +299,20 @@ const sendMessage = async () => {
   }
 };
 
+// 发送语音消息
+const sendVoiceMessage = (text: string) => {
+  sendTextMessage(text);
+};
+
+// 处理手动发送消息
+const handleManualSend = (e) => {
+  if (!e.trim()) return;
+  console.log("手动发送消息:", e);
+  inputMode.value = "manual";
+  sendTextMessage(e);
+  inputText.value = "";
+};
+
 // @ts-ignore
 const startSpeechRecognition = async () => {
   if (isRecording.value) {
@@ -310,6 +324,15 @@ const startSpeechRecognition = async () => {
     status.value = "recording";
     isRecording.value = true;
     messages.value.push({ text: "正在录音...", type: "info" });
+    inputMode.value = "voice"; // 设置为语音输入模式
+
+    // 添加30秒超时自动停止
+    const timeoutId = setTimeout(() => {
+      if (isRecording.value) {
+        messages.value.push({ text: "录音超时自动停止", type: "warning" });
+        stopRecording();
+      }
+    }, 30000);
 
     // 初始化AudioContext
     audioContext = new AudioContext();
@@ -331,6 +354,7 @@ const startSpeechRecognition = async () => {
         mode: "2pass",
       };
       recognition!.send(JSON.stringify(config));
+      clearTimeout(timeoutId); // 连接成功时清除超时
     };
 
     recognition.onmessage = (event) => {
@@ -338,12 +362,12 @@ const startSpeechRecognition = async () => {
         const data = JSON.parse(event.data);
         console.log(data, "接收到的消息:");
         if (data.mode == "2pass-online") {
+          // 在线结果更新输入框但不发送
           inputText.value = data.text;
         } else if (data.mode == "2pass-offline") {
           if (data.text) {
-            inputText.value = data.text;
-            // 自动发送识别结果
-            sendMessage();
+            // 离线结果直接发送
+            sendVoiceMessage(data.text);
           }
         }
       } catch (err) {
@@ -355,6 +379,7 @@ const startSpeechRecognition = async () => {
       console.error("WebSocket错误:", error);
       messages.value.push({ text: "语音识别连接失败", type: "error" });
       stopRecording();
+      clearTimeout(timeoutId);
     };
 
     // 初始化Recorder
@@ -383,6 +408,7 @@ const startSpeechRecognition = async () => {
     if (!Recorder.Support()) {
       messages.value.push({ text: "浏览器不支持录音功能", type: "error" });
       stopRecording();
+      clearTimeout(timeoutId);
       return;
     }
 
@@ -395,6 +421,7 @@ const startSpeechRecognition = async () => {
         console.error("录音启动失败:", err);
         messages.value.push({ text: "录音启动失败", type: "error" });
         stopRecording();
+        clearTimeout(timeoutId);
       }
     );
   } catch (error) {
@@ -427,6 +454,7 @@ const stopRecording = () => {
 
   status.value = "idle";
   isRecording.value = false;
+  inputMode.value = "manual"; // 重置输入模式
 };
 
 // @ts-ignore
@@ -505,6 +533,15 @@ const createElement = (container: HTMLElement, payload: any) => {
   container.appendChild(element);
 };
 
+function parseStyleString(styleStr: string): Record<string, string> {
+  const styles: Record<string, string> = {};
+  styleStr.split(";").forEach((rule) => {
+    const [key, val] = rule.split(":").map((s) => s.trim());
+    if (key && val) styles[key] = val;
+  });
+  return styles;
+}
+
 // 修改元素
 const modifyElement = (container: HTMLElement, payload: any) => {
   if (!payload.selector || !payload.modifications) {
@@ -519,7 +556,16 @@ const modifyElement = (container: HTMLElement, payload: any) => {
     if (key === "class") {
       element.className = value as string;
     } else if (key === "style") {
-      element.style = value as string;
+      // 解析样式值（支持对象/字符串）
+      const styleUpdates: Record<string, string> =
+        typeof value === "string"
+          ? parseStyleString(value)
+          : (value as Record<string, string>);
+
+      // 按key更新样式（保留原有样式）
+      for (const [prop, val] of Object.entries(styleUpdates)) {
+        element.style.setProperty(prop, val);
+      }
     } else {
       (element as any)[key] = value;
     }
@@ -582,7 +628,7 @@ const queryElement = () => {
 };
 </script>
 
-<style scoped>
+<style>
 .home-container {
   width: 300px;
   height: 100vh;
@@ -598,6 +644,8 @@ const queryElement = () => {
   background: #f0f0f0;
   position: relative;
   flex-shrink: 0;
+}
+.model-instructions * {
   transition: all 1s ease-in-out;
 }
 </style>
