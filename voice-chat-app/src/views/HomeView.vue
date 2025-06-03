@@ -327,11 +327,15 @@ const sendMessage = async () => {
 
     // 添加AI回复
     const aiResponse = response.data.choices[0].message.content;
-    const aiType = detectMessageType(aiResponse);
-    messages.value.push({ text: aiResponse, type: aiType });
+    const deal_aiResponse = aiResponse
+      .replace("```json", "")
+      .replace("```", "")
+      .trim();
+    const aiType = detectMessageType(deal_aiResponse);
+    messages.value.push({ text: deal_aiResponse, type: aiType });
 
     // 处理可能的指令
-    handleInstructions(aiResponse);
+    handleInstructions(deal_aiResponse);
   } catch (error) {
     console.error("请求失败:", error);
     messages.value.push({ text: "请求失败，请稍后再试", type: "error" });
@@ -480,10 +484,7 @@ const handleInstructions = (response: string) => {
   }
 
   try {
-    let rep = response.replace("```json", "");
-    rep = rep.replace("```", "");
-    rep = rep.trim();
-    const instruction = JSON.parse(rep);
+    const instruction = JSON.parse(response);
 
     // 验证指令基本结构
     if (!instruction.type || !instruction.payload) {
