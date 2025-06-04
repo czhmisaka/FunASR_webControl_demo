@@ -5,7 +5,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { SystemMode } from './types';
-import type { IAgent, ModeTransition, ModelConfig, ModelEngineService, UnifiedAgentResponse, ToolExecutionResult } from './types';
+import type { IAgent, ModeTransition, ModelConfig, ModelEngineService, UnifiedAgentResponse, ToolExecutionResult, TaskDefinition } from './types';
 import { ToolScheduler } from './toolScheduler';
 import { handleInstructions } from './domOperations';
 
@@ -16,6 +16,7 @@ export class AgentBase implements IAgent {
     public id = uuidv4();
     public currentMode: SystemMode = SystemMode.PLANNING;
     public modeHistory: ModeTransition[] = [];
+    public lastEvaluationResult: any = null; // 存储最近一次评估结果
 
     constructor(
         private modelService: ModelEngineService, // ✅ 通过依赖注入
@@ -46,7 +47,7 @@ export class AgentBase implements IAgent {
         const modelService = this.modelService as any;
         if (modelService.pushAgentMessage) {
             modelService.pushAgentMessage(
-                `代理 ${this.id} 进入 ${newMode} 模式`,
+                `代理进入 ${newMode} 模式`,
                 'agent-state',
                 { agentId: this.id, mode: newMode }
             );
@@ -74,6 +75,7 @@ export class AgentBase implements IAgent {
                 nextActions = result.plan.map((step: string) => `执行: ${step.split('\n')[0]}`);
                 break;
             case SystemMode.ACTION:
+                console.log(`tasktasktasktasktask 执行操作: ${task}`);
                 result = await this.handleAction(task);
                 data = {
                     executed: result.executed,
@@ -91,18 +93,7 @@ export class AgentBase implements IAgent {
                     rawResponse: result.rawResponse
                 };
                 status = result.passed ? 'success' : 'partial';
-                nextActions = result.passed ? ['进行最终评估'] : ['修复问题'];
-                break;
-            case SystemMode.EVALUATION:
-                result = await this.handleEvaluation(task);
-                data = {
-                    completed: result.completed,
-                    score: result.score,
-                    feedback: result.feedback,
-                    rawResponse: result.rawResponse
-                };
-                status = result.completed ? 'success' : 'partial';
-                nextActions = result.completed ? ['任务完成'] : ['重新规划'];
+                nextActions = result.passed ? ['规划下一步'] : ['修复问题'];
                 break;
             default:
                 throw new Error(`未知代理模式: ${this.currentMode}`);
@@ -122,13 +113,33 @@ export class AgentBase implements IAgent {
     // 规划模式处理 - 调用模型生成任务计划
     private async handlePlanning(task: string) {
         console.log(`[代理 ${this.id}] 规划任务: ${task}`);
+        let prompt = task
+
+        // // 注入历史评估结果
+        // if (this.lastEvaluationResult) {
+        //     prompt += `\n\n### 历史评估结果\n`
+        //         + `完成状态: ${this.lastEvaluationResult.completed ? "是" : "否"}\n`
+        //         + `评分: ${this.lastEvaluationResult.score}/100\n`
+        //         + `反馈: ${this.lastEvaluationResult.feedback}`;
+        // }
+
         const response = await this.modelService.executeModelInstruction(
-            `你是一位任务规划专家。请将以下用户目标分解为可执行的步骤序列：${task}`,
+            prompt,
             'planning',
             this.modelConfig
         );
+
+        // 将步骤数组转换为任务对象数组（添加顺序和依赖关系）
+        const steps: string[] = response.instructions || [];
+        const plan = steps.map((step: string, index: number) => ({
+            id: `task-${Date.now()}-${index}`,
+            order: index + 1,
+            description: step,
+            dependsOn: index > 0 ? [`task-${Date.now()}-${index - 1}`] : []
+        }));
+
         return {
-            plan: response.instructions || [],
+            plan,
             rawResponse: response
         };
     }
@@ -136,41 +147,63 @@ export class AgentBase implements IAgent {
     // 行动模式处理 - 调用模型执行任务步骤
     private async handleAction(task: string) {
         console.log(`[代理 ${this.id}] 执行任务: ${task}`);
-        let response = await this.modelService.executeModelInstruction(
+        const response = await this.modelService.executeModelInstruction(
             `${task}`,
             'action',
             this.modelConfig
         );
-        response = JSON.parse(response);
-        console.log(`[代理 ${this.id}] 响应:`, response, typeof response);
+        const parsedResponse = JSON.parse(response);
+        console.log(`[代理 ${this.id}] 响应:`, parsedResponse, typeof parsedResponse);
+
         // 仅处理DOM指令
-        if (response.type && response.type.startsWith("dom/")) {
+        if (parsedResponse.type && parsedResponse.type.startsWith("dom/")) {
             const container = document.getElementById('model-instructions');
-            if (!container) {
+            // 直接执行 dom指令
+            let res = await handleInstructions(parsedResponse, container as any);
+            console.log(`[代理 ${this.id}] dom响应:`, res, typeof res);
+            if (!container || !res) {
                 return {
                     executed: false,
-                    result: "找不到容器元素'model-instructions'",
-                    rawResponse: response
+                    result: "执行失败",
+                    rawResponse: parsedResponse
                 };
+            } else {
+                return {
+                    executed: true,
+                    result: "DOM指令已执行",
+                    rawResponse: res
+                }
             }
-            console.log(`[代理 ${this.id}] 执行DOM指令:`, response);
-            const toolResult = await this.toolScheduler.executeTool("dom", {
-                instruction: JSON.stringify(response),
-                container: container
-            }, this.id) as ToolExecutionResult;
-            console.log(`[代理 ${this.id}] 工具执行结果:`, toolResult);
 
-            return {
-                executed: toolResult.status === 'success',
-                result: toolResult.status === 'success' ? toolResult.result : toolResult.message,
-                rawResponse: response
-            };
+            // // 创建任务对象
+            // const taskDefinition: TaskDefinition = {
+            //     id: `dom-task-${Date.now()}`,
+            //     priority: 'medium',
+            //     retryCount: 0,
+            //     execute: async () => {
+            //         console.log(`[代理 ${this.id}] 执行DOM指令:`, parsedResponse);
+            //         return await this.toolScheduler.executeTool("dom", {
+            //             instruction: JSON.stringify(parsedResponse),
+            //             container: container
+            //         }, this.id);
+            //     }
+            // };
+
+            // // 将任务加入队列
+            // this.toolScheduler.addTask(taskDefinition);
+            // console.log(`[代理 ${this.id}] 任务已加入队列: ${taskDefinition.id}`);
+
+            // return {
+            //     executed: true, // 标记为已加入队列
+            //     result: `任务已排队: ${taskDefinition.id}，当前任务队列：`,
+            //     rawResponse: parsedResponse
+            // };
         }
 
         return {
             executed: false,
-            result: `不支持指令类型: ${response.type || '未定义'}`,
-            rawResponse: response
+            result: `不支持指令类型: ${parsedResponse.type || '未定义'}`,
+            rawResponse: parsedResponse
         };
     }
 
@@ -178,7 +211,7 @@ export class AgentBase implements IAgent {
     private async handleReview(task: string) {
         console.log(`[代理 ${this.id}] 检查任务: ${task}`);
         const response = await this.modelService.executeModelInstruction(
-            `你是一位质量检查专家。请验证以下任务执行结果：${task}`,
+            task,
             'review',
             this.modelConfig
         );
@@ -189,19 +222,4 @@ export class AgentBase implements IAgent {
         };
     }
 
-    // 评价模式处理 - 调用模型评估整体效果
-    private async handleEvaluation(task: string) {
-        console.log(`[代理 ${this.id}] 评价任务: ${task}`);
-        const response = await this.modelService.executeModelInstruction(
-            `你是一位任务评估专家。请对以下任务完成情况进行评估：${task}`,
-            'evaluation',
-            this.modelConfig
-        );
-        return {
-            completed: response.completed || false,
-            score: response.score || 0,
-            feedback: response.feedback || '',
-            rawResponse: response
-        };
-    }
 }

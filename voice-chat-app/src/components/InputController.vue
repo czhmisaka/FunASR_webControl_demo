@@ -1,7 +1,7 @@
 <!--
  * @Date: 2025-06-03 17:18:50
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-05 02:58:27
+ * @LastEditTime: 2025-06-05 05:43:20
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/components/InputController.vue
 -->
 <template>
@@ -36,7 +36,9 @@ defineOptions({
   name: "InputController",
 });
 
-const inputText = ref("创建十个不同颜色的方块在页面的中间");
+const inputText = ref(
+  "在页面上创建5个随机渐变色的方块，并且用绝对定位分布在不同的页面位置"
+);
 const isRecording = ref(false);
 
 const emit = defineEmits(["send", "start-recording", "open-config"]);

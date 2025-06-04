@@ -18,7 +18,7 @@
           class="message-item"
           :class="`type-${msg.type}`"
         >
-          <div
+          <!-- <div
             class="message-icon"
             v-if="shouldShowIcon(msg.type)"
           >
@@ -29,7 +29,7 @@
             <template v-else-if="msg.type === 'agent-action'">⚡</template>
             <template v-else-if="msg.type === 'agent-result'">✅</template>
             <template v-else-if="msg.type === 'agent-state'">🔄</template>
-          </div>
+          </div> -->
           <div class="content-wrapper">
             <div class="message-content">
               {{ formatMessageContent(msg.text, msg.type) }}

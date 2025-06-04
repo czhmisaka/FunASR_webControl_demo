@@ -5,11 +5,12 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { SystemMode } from './types';
-import type { IAgent, ModelEngineService, ModelConfig, Directive, DOMAction, Task } from './types';
+import type { IAgent, ModelConfig, Directive, DOMAction, Task } from './types';
 import { AgentBase } from './agentBase';
 import { StateMachineEngine } from './stateMachine';
 import { ToolScheduler } from './toolScheduler';
 import { domBaseOperations, handleInstructions } from './domOperations';
+import { ModelEngineService } from './modelEngineService';
 
 /**
  * 监督器类，管理多个代理
@@ -17,6 +18,8 @@ import { domBaseOperations, handleInstructions } from './domOperations';
 export class Supervisor {
     private agents: IAgent[] = [];
     private activeGoal: string | null = null;
+    private originGoal: string | null = null;
+    private actionGoal: string | null = null;
     private isRunning: boolean = false;
     private modelConfig: ModelConfig;
     private modelService: ModelEngineService;
@@ -108,18 +111,9 @@ export class Supervisor {
      */
     private async parseUserGoal(goal: string): Promise<Task> {
         // 使用提示词要求模型返回结构化任务
-        const prompt = `将用户目标解析为结构化任务：
+        const prompt = `
 用户目标: ${goal}
-
-返回JSON格式：
-{
-  "task_id": "生成的UUID",
-  "intent": "任务意图",
-  "params": { 关键参数 },
-  "priority": "low/medium/high",
-  "deadline": "可选截止时间",
-  "subtasks": [子任务数组]
-}`;
+`;
 
         const modelResponse = await this.modelService.executeModelInstruction(
             prompt,
@@ -152,6 +146,10 @@ export class Supervisor {
         this.activeGoal = goal;
         this.isRunning = true;
 
+        // 启动任务队列处理器
+        this.toolScheduler.startProcessing();
+        console.log('[Supervisor] 任务队列处理器已启动');
+
         // 解析用户目标为结构化任务
         const task = await this.parseUserGoal(goal);
         console.log('结构化任务:', task);
@@ -160,57 +158,66 @@ export class Supervisor {
         const planningAgent = this.addAgent();
         planningAgent.transitionMode(SystemMode.PLANNING, "初始目标规划");
 
-        try {
-            while (this.isRunning && !this.stateMachine.isComplete() && this.agents.length > 0) {
-                // 获取当前状态
-                const currentState = this.stateMachine.current_state;
+        // try {
+        while (this.isRunning && !this.stateMachine.isComplete() && this.agents.length > 0) {
+            // 获取当前状态
+            const currentState = this.stateMachine.current_state;
 
-                // 根据状态选择代理
-                let activeAgent = this.agents.find(agent =>
-                    agent.currentMode === currentState
-                );
+            // 根据状态选择代理
+            let activeAgent = this.agents.find(agent =>
+                agent.currentMode === currentState
+            );
 
-                if (!activeAgent) {
-                    activeAgent = this.selectActiveAgent();
-                }
-
-                if (!activeAgent) {
-                    this.isRunning = false;
-                    break;
-                }
-
-                // 执行任务并等待结果
-                const result = await activeAgent.executeTask(this.activeGoal);
-                console.log(`代理执行结果:`, result);
-
-                // 更新任务状态
-                task.subtasks = task.subtasks || [];
-                task.subtasks.push({
-                    subtask_id: uuidv4(),
-                    description: `State: ${currentState}, Result: ${JSON.stringify(result)}`,
-                    required_capabilities: [],
-                    output_format: 'text'
-                });
-
-                // 状态转换（使用智能决策）
-                const nextState = await this.stateMachine.transition(result) as SystemMode;
-
-                // 更新代理模式以匹配状态机
-                activeAgent.transitionMode(nextState, '状态机决策更新');
-
-                // 添加延迟避免CPU过载
-                await new Promise(resolve => setTimeout(resolve, 500));
+            if (!activeAgent) {
+                activeAgent = this.selectActiveAgent();
             }
 
-            if (this.stateMachine.isComplete()) {
-                console.log("任务完成:", task);
+            if (!activeAgent) {
+                this.isRunning = false;
+                break;
             }
-        } catch (error) {
-            console.error("目标执行失败:", error);
-            this.isRunning = false;
-        } finally {
-            this.stopAll();
+
+            // 执行任务并等待结果
+            const startTime = Date.now();
+            const result = await activeAgent.executeTask(
+                (currentState === 'action' ? this.actionGoal : goal) as string,
+            );
+            const duration = Date.now() - startTime;
+            console.log(`代理执行结果:`, result);
+            if (currentState == 'planning') {
+                this.actionGoal = result?.result?.data?.result || result?.result?.data.rawResponse;
+            }
+
+            this.modelService.pushAgentMessage(
+                `代理(${activeAgent.currentMode}) 执行完成: ${result?.result?.data?.result || result?.result?.data.rawResponse}`,
+                'agent-result',
+                {
+                    agentId: activeAgent.id,
+                    mode: activeAgent.currentMode,
+                    timestamp: Date.now(),
+                    duration
+                }
+            );
+
+            // 状态转换（使用智能决策）
+            const nextState = await this.stateMachine.transition(result) as SystemMode;
+
+            // 更新代理模式以匹配状态机
+            activeAgent.transitionMode(nextState, '状态机决策更新');
+
+            // 添加延迟避免CPU过载
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
+
+        if (this.stateMachine.isComplete()) {
+            console.log("任务完成:", task);
+        }
+        // } catch (error) {
+        //     console.error("目标执行失败:", error);
+        //     this.isRunning = false;
+        // } finally {
+        //     this.stopAll();
+        // }
     }
 
     /**

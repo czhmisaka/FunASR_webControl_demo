@@ -1,11 +1,50 @@
 /**
  * 工具调度器实现
  */
-import type { ToolExecutionResult, ModelConfig } from './types';
+import { v4 as uuidv4 } from 'uuid';
+import type { ToolExecutionResult, ModelConfig, TaskDefinition } from './types';
+
+// 任务队列管理类
+class TaskQueue {
+    public queue: Array<TaskDefinition> = [];
+    private completedTasks: Record<string, boolean> = {};
+
+    enqueue(task: TaskDefinition) {
+        this.queue.push(task);
+        this.queue.sort((a, b) => {
+            const priorityOrder = { high: 0, medium: 1, low: 2 };
+            return priorityOrder[a.priority] - priorityOrder[b.priority];
+        });
+    }
+
+    async process() {
+        while (this.queue.length > 0) {
+            const task = this.queue.shift()!;
+
+            // 检查任务依赖是否满足
+            if (task.dependsOn && task.dependsOn.some(id => !this.completedTasks[id])) {
+                this.enqueue(task); // 重新入队等待
+                continue;
+            }
+
+            try {
+                await task.execute();
+                this.completedTasks[task.id] = true;
+            } catch (error) {
+                console.error(`任务执行失败: ${task.id}`, error);
+                if (task.retryCount < 3) {
+                    task.retryCount++;
+                    this.enqueue(task); // 重试
+                }
+            }
+        }
+    }
+}
 
 export class ToolScheduler {
     private tools: Record<string, any> = {};
     private securityPolicy: any;
+    private taskQueue = new TaskQueue();
 
     constructor() {
         this.securityPolicy = {
@@ -22,12 +61,38 @@ export class ToolScheduler {
         this.tools[toolId] = toolInstance;
     }
 
+    getTasks(): Array<TaskDefinition> {
+        return this.taskQueue;
+    }
+
     getTool(toolId: string): any {
         console.log(`当前工具列表`, this.tools);
         return this.tools[toolId];
     }
 
+    /**
+     * 直接执行工具（兼容旧逻辑）
+     */
     async executeTool(toolId: string, params: any, agentId: string): Promise<ToolExecutionResult> {
+        return new Promise((resolve) => {
+            const task: TaskDefinition = {
+                id: uuidv4(),
+                priority: 'medium',
+                retryCount: 0,
+                execute: async () => {
+                    const result = await this._executeTool(toolId, params, agentId);
+                    resolve(result);
+                }
+            };
+            this.taskQueue.enqueue(task);
+        });
+    }
+
+    /**
+     * 内部执行逻辑
+     */
+    private async _executeTool(toolId: string, params: any, agentId: string): Promise<ToolExecutionResult> {
+        // [保持原有执行逻辑不变]
         // 记录工具调用开始时间
         const startTime = Date.now();
 
@@ -79,6 +144,20 @@ export class ToolScheduler {
                 suggestion: suggestion
             };
         }
+    }
+
+    /**
+     * 添加任务到队列（新API）
+     */
+    addTask(task: TaskDefinition) {
+        this.taskQueue.enqueue(task);
+    }
+
+    /**
+     * 启动队列处理
+     */
+    startProcessing() {
+        this.taskQueue.process();
     }
 
     private executeWithTimeout(promise: Promise<any>, timeout: number): Promise<any> {

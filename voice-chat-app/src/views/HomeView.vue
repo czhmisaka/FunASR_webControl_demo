@@ -72,8 +72,22 @@ interface MessageGroup {
 
 // 消息分组计算属性
 // 获取代理消息
-const agentMessages = computed(() => {
-  return modelEngineService.getAgentMessages();
+const agentMessages = ref(modelEngineService.getAgentMessages());
+
+// 监听代理消息事件
+const handleAgentMessage = (event: CustomEvent) => {
+  agentMessages.value.push(event.detail);
+};
+
+onMounted(() => {
+  window.addEventListener("agent-message", handleAgentMessage as EventListener);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener(
+    "agent-message",
+    handleAgentMessage as EventListener
+  );
 });
 
 // 合并用户消息和代理消息
@@ -204,7 +218,9 @@ const sendTextMessage = async (text: string) => {
   // 判断要求复杂性
   const isComplex = await modelEngineService.judgeUserInput(
     text,
-    "这个要求可以用一条 单个元素生成、单个元素编辑、单个元素删除指令来完成吗？"
+    `只能使用一次指令，
+    并且这个指令只能是创建一个元素、编辑一个元素、删除一个元素三个中的一个。
+    请判断是否能用一个指令来完成用户的需求。`
   );
 
   if (isComplex) {
@@ -435,7 +451,7 @@ const stopRecording = () => {
 
 <style>
 .home-container {
-  width: 300px;
+  width: 500px;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -443,7 +459,7 @@ const stopRecording = () => {
 }
 
 .model-instructions {
-  width: calc(100% - 300px);
+  width: calc(100% - 500px);
   height: 100vh;
   float: right;
   background: #f0f0f0;

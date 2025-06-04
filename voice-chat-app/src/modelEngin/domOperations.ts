@@ -137,8 +137,10 @@ export const queryElement = (container: HTMLElement): string[] => {
  * @param container 容器元素
  */
 export const handleInstructions = (response: string, container: HTMLElement): boolean => {
+    console.log("模型指令", response);
     try {
-        const instruction = JSON.parse(response);
+
+        const instruction = typeof response == 'string' ? JSON.parse(response) : response
 
         // 验证指令基本结构
         if (!instruction.type || !instruction.payload) {
@@ -146,6 +148,7 @@ export const handleInstructions = (response: string, container: HTMLElement): bo
         }
 
         let result = false;
+        console.log("指令类型", instruction.type, "payload", instruction.payload);
         switch (instruction.type) {
             case "dom/create":
                 createElement(container, instruction.payload);

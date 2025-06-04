@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-04 09:29:09
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-04 17:15:05
+ * @LastEditTime: 2025-06-05 06:01:40
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/modelEngin/types.ts
  */
 /**
@@ -51,7 +51,16 @@ export interface Subtask {
 export interface StateTransition {
     state: string;
     time: Date;
-    transition_reason?: string;
+    transition_reason: string;
+}
+
+// 新增任务定义类型
+export interface TaskDefinition {
+    id: string;
+    priority: 'high' | 'medium' | 'low';
+    retryCount: number;
+    dependsOn?: string[];
+    execute: () => Promise<any>;
 }
 
 export interface StateMachine {
@@ -114,8 +123,7 @@ export enum SystemMode {
     PLANNING = 'planning',
     ACTION = 'action',
     REVIEW = 'review',
-    EVALUATION = 'evaluation',
-    COMPLETE = 'complete'
+    COMPLETE = 'complete' // 移除EVALUATION
 }
 
 // 统一代理响应格式
@@ -156,6 +164,10 @@ export interface ModeTransition {
 
 // 模型引擎服务接口
 export interface ModelEngineService {
+    judgeUserInput(
+        input: string,
+        requirement: string
+    ): Promise<ModeDecision>;
     executeModelInstruction(
         instruction: string,
         mode: 'planning' | 'action' | 'review' | 'evaluation',
