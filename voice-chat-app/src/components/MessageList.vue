@@ -18,11 +18,23 @@
           class="message-item"
           :class="`type-${msg.type}`"
         >
-          <div class="message-content">{{ msg.text }}</div>
           <div
-            v-if="msg.duration"
-            class="duration"
-          >{{ formatDuration(msg.duration) }}</div>
+            class="message-icon"
+            v-if="['info', 'error','success',].indexOf(msg.type)>-1"
+          >
+            <template v-if="msg.type === 'info'">ℹ️</template>
+            <template v-else-if="msg.type === 'error'">❌</template>
+            <template v-else-if="msg.type === 'success'">✅</template>
+          </div>
+          <div class="content-wrapper">
+            <div class="message-content">
+              {{ isJsonInstruction(msg.text) ? truncateJson(msg.text) : msg.text }}
+            </div>
+            <div
+              v-if="msg.duration"
+              class="duration"
+            >{{ formatDuration(msg.duration) }}</div>
+          </div>
         </div>
       </div>
 
@@ -31,11 +43,23 @@
         v-else
         :class="['message', `type-${item.type}`]"
       >
-        <div class="message-content">{{ item.messages[0].text }}</div>
         <div
-          v-if="item.messages[0].duration"
-          class="duration"
-        >{{ formatDuration(item.messages[0].duration) }}</div>
+          class="message-icon"
+          v-if="['info', 'error','success',].indexOf(item.type)>-1"
+        >
+          <template v-if="item.type === 'info'">ℹ️</template>
+          <template v-else-if="item.type === 'error'">❌</template>
+          <template v-else-if="item.type === 'success'">✅</template>
+        </div>
+        <div class="content-wrapper">
+          <div class="message-content">
+            {{ isJsonInstruction(item.messages[0].text) ? truncateJson(item.messages[0].text) : item.messages[0].text }}
+          </div>
+          <div
+            v-if="item.messages[0].duration"
+            class="duration"
+          >{{ formatDuration(item.messages[0].duration) }}</div>
+        </div>
       </div>
     </template>
   </div>
@@ -64,6 +88,17 @@ const messagesContainer = ref<HTMLElement | null>(null);
 const formatDuration = (ms: number) => {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
+};
+
+// 检测是否为JSON指令
+const isJsonInstruction = (text: string): boolean => {
+  return /^\s*\{.*\}\s*$/.test(text);
+};
+
+// 截取JSON指令显示
+const truncateJson = (json: string): string => {
+  if (json.length <= 40) return json;
+  return `${json.substring(0, 20)}...${json.substring(json.length - 20)}`;
 };
 
 watch(
@@ -97,7 +132,7 @@ export default {};
   display: flex;
   margin-bottom: 8px;
   align-items: flex-start;
-  flex-flow: column;
+  flex-flow: row;
 }
 
 /* 类型颜色区分 */
@@ -144,19 +179,31 @@ export default {};
 }
 
 /* 消息内容样式 */
+.message-icon {
+  font-size: 1.2em;
+  margin-right: 8px;
+  margin-top: 4px;
+}
+
 .message-content {
   padding: 4px 12px;
   border-radius: 18px;
-  width: calc(100% - 20px);
   font-size: 14px;
   line-height: 1.5;
   background: #f8f9fa;
+  flex: 1;
 }
 
 .type-user .message-content {
   background: linear-gradient(to bottom right, #4e54c8, #8f94fb);
   color: white;
   border-bottom-right-radius: 0;
+}
+
+.type-success .message-content {
+  background: linear-gradient(to bottom right, #34a853, #7ddbaa);
+  color: white;
+  border-bottom-left-radius: 0;
 }
 
 .type-ai .message-content {
@@ -175,22 +222,12 @@ export default {};
 .duration {
   font-size: 0.7em;
   color: #888;
-  margin-top: 4px;
-  text-align: right;
-  padding-right: 8px;
+  margin-top: 2px;
 }
 
 .type-user .duration {
-  text-align: right;
   background: gray;
   color: white;
-}
-
-.type-ai .duration,
-.type-info .duration,
-.type-instruction .duration,
-.type-error .duration {
-  text-align: left;
 }
 
 .type-error .message-content {
