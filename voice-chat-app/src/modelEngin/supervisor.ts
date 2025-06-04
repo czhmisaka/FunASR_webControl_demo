@@ -5,8 +5,9 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { AgentMode } from './types';
-import type { IAgent, ModelEngineService, ModelConfig } from './types';
+import type { IAgent, ModelEngineService, ModelConfig, Directive, DOMAction } from './types';
 import { AgentBase } from './agentBase';
+import { domBaseOperations } from './domOperations';
 
 /**
  * 监督器类，管理多个代理
@@ -18,11 +19,31 @@ export class Supervisor {
     private modelConfig: ModelConfig;
     private modelService: ModelEngineService;
 
+    // 新增指令执行接口
+    public executeDirective(directive: Directive): string {
+        try {
+            switch (directive.action) {
+                case 'clickElement':
+                    return domBaseOperations.clickElement(directive.params[0]);
+                case 'setInputValue':
+                    return domBaseOperations.setInputValue(directive.params[0], directive.params[1]);
+                default:
+                    throw new Error(`Unsupported action: ${directive.action}`);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            return `Error: ${message}`;
+        }
+    }
+
     constructor(modelService: ModelEngineService, modelConfig: ModelConfig) {
         this.modelService = modelService;
         this.modelConfig = modelConfig;
         // 初始化代理
         this.addAgent();
+
+        // 暴露API到全局
+        window.__directiveAPI = { executeDirective: this.executeDirective.bind(this) };
     }
 
     /**

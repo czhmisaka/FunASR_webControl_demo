@@ -4,14 +4,14 @@
     <MessageList :grouped-messages="groupedMessages" />
 
     <!-- 目标输入区域 -->
-    <div class="goal-input-area">
+    <!-- <div class="goal-input-area">
       <input
         v-model="goalText"
         placeholder="请输入目标指令"
         @keyup.enter="executeGoal"
       />
       <button @click="executeGoal">执行目标</button>
-    </div>
+    </div> -->
 
     <!-- 底部输入区域 -->
     <InputController
@@ -54,7 +54,6 @@ import {
 import "recorder-core/src/engine/pcm";
 
 const inputText = ref("");
-const goalText = ref("");
 const messages = ref<{ text: string; type: string; duration?: number }[]>([]);
 const isRecording = ref(false);
 const inputMode = ref<"manual" | "voice">("manual");
@@ -161,19 +160,19 @@ const saveModelConfig = (e: any) => {
 };
 
 // 执行目标指令
-const executeGoal = async () => {
-  if (!goalText.value.trim()) return;
+const executeGoal = async (goalText: string) => {
+  if (!goalText.trim()) return;
 
   try {
     messages.value.push({
-      text: `开始执行目标: ${goalText.value}`,
+      text: `开始执行目标: ${goalText}`,
       type: "info",
     });
 
-    await modelEngineService.executeUserGoal(goalText.value);
+    await modelEngineService.executeUserGoal(goalText);
 
     messages.value.push({
-      text: `目标执行完成: ${goalText.value}`,
+      text: `目标执行完成: ${goalText}`,
       type: "success",
     });
   } catch (error: any) {
@@ -182,7 +181,7 @@ const executeGoal = async () => {
       type: "error",
     });
   } finally {
-    goalText.value = "";
+    goalText = "";
   }
 };
 
@@ -192,78 +191,86 @@ const sendTextMessage = async (text: string) => {
 
   messages.value.push({ text, type: "user" });
   const userMessage = text;
+  // 判断要求复杂性
+  const isComplex = await modelEngineService.judgeUserInput(
+    text,
+    "这个要求可以用一条 单个元素生成、单个元素编辑、单个元素删除指令来完成吗？"
+  );
 
-  try {
-    // 获取页面内容
-    const container = document.getElementById("model-instructions");
-    const pageContent = container ? queryElement(container).join("\n") : "";
-    if (pageContent) {
+  if (isComplex) {
+    // 发送请求
+    try {
+      // 获取页面内容
+      const container = document.getElementById("model-instructions");
+      const pageContent = container ? queryElement(container).join("\n") : "";
+      if (pageContent) {
+        messages.value.push({
+          text: `容器中有${pageContent.split("\n").length}个元素`,
+          type: "success",
+        });
+      } else {
+        messages.value.push({
+          text: "容器中没有元素",
+          type: "warning",
+        });
+      }
+      // 发送到模型引擎
+      const response = await modelEngineService.executeModelInstruction(
+        userMessage,
+        "action",
+        modelConfig.value
+      );
+
+      let aiResponse = "";
+      let duration = 0;
+      let aiType = "info";
+
+      if (response) {
+        aiResponse =
+          typeof response === "string" ? response : JSON.stringify(response);
+        aiType = aiResponse.includes("dom/") ? "instruction" : "ai";
+      } else if (response.error) {
+        aiResponse = response.error;
+        aiType = "error";
+      }
+
+      if (response.duration) {
+        duration = response.duration;
+      }
       messages.value.push({
-        text: `容器中有${pageContent.split("\n").length}个元素`,
-        type: "success",
+        text: response,
+        type: aiType,
+        duration,
       });
-    } else {
-      messages.value.push({
-        text: "容器中没有元素",
-        type: "warning",
-      });
-    }
-    // 发送到模型引擎
-    const response = await modelEngineService.executeModelInstruction(
-      userMessage,
-      "action",
-      modelConfig.value
-    );
 
-    let aiResponse = "";
-    let duration = 0;
-    let aiType = "info";
-
-    if (response.response) {
-      aiResponse =
-        typeof response.response === "string"
-          ? response.response
-          : JSON.stringify(response.response);
-      aiType = aiResponse.includes('"type": "dom/') ? "instruction" : "ai";
-    } else if (response.error) {
-      aiResponse = response.error;
-      aiType = "error";
-    }
-
-    if (response.duration) {
-      duration = response.duration;
-    }
-    messages.value.push({
-      text: response,
-      type: aiType,
-      duration,
-    });
-
-    // 处理可能的指令并添加成功提示
-    if (container) {
-      const instructionSuccess = handleDomInstructions(response, container);
-      if (instructionSuccess) {
-        try {
-          const instruction = JSON.parse(response);
-          const actionType = instruction.type.replace("dom/", "");
-          messages.value.push({
-            text: `指令执行成功：完成${actionType}操作`,
-            type: "success",
-          });
-        } catch {
-          messages.value.push({
-            text: "指令执行成功",
-            type: "success",
-          });
+      // 处理可能的指令并添加成功提示
+      if (container && aiType == "instruction") {
+        const instructionSuccess = handleDomInstructions(response, container);
+        if (instructionSuccess) {
+          try {
+            const instruction = JSON.parse(response);
+            const actionType = instruction.type.replace("dom/", "");
+            messages.value.push({
+              text: `指令执行成功：完成${actionType}操作`,
+              type: "success",
+            });
+          } catch {
+            messages.value.push({
+              text: "指令执行成功",
+              type: "success",
+            });
+          }
         }
       }
+    } catch (error: any) {
+      console.error("请求失败:", error);
+      messages.value.push({
+        text: error.message || "请求失败，请稍后再试",
+        type: "error",
+      });
     }
-  } catch (error: any) {
-    console.error("请求失败:", error);
-    messages.value.push({
-      text: error.message || "请求失败，请稍后再试",
-      type: "error",
-    });
+  } else {
+    executeGoal(text);
   }
 };
 

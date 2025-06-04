@@ -19,8 +19,24 @@ export class ModelEngineService {
         this.supervisor = new Supervisor(this, this.modelConfig);
     }
 
-    // 默认系统提示词
-    private readonly default_prompt = `
+    private readonly basePowerPrompts = `
+你是一个综合智能体，你具备 planning 、action 、review 三种模式。
+不同模式的简介：
+planning：根据用户输入进行任务规划，将用户的输入任务拆解为多步骤的 任务指令供 action 执行。
+action：执行 单个元素生成、单个元素编辑、单个元素删除的指令。
+review：检查任务执行结果，在review模式中，你能查看到当前页面的所有元素。可以判断运行结果，若判断任务为能完成，可以通过指令输出修改建议。
+`
+
+    // 模式专用提示词
+    private readonly modePrompts = {
+        planning: (userinput?: string) => `
+${this.basePowerPrompts}
+当前处于planning，请根据用户输入进行任务规划。
+当前用户的要求是：${userinput}
+        `,
+        action: () => `
+        ${this.basePowerPrompts}
+        当前处于 action 模式
 当你判断用户只是普通聊天，那就用简短的回答回应用户即可。
 当你判断需要进行页面元素操作时，请严格按照以下 JSON 格式输出操作指令，确保语法正确且字段完整：
 {
@@ -49,14 +65,9 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
 禁止出现注释、多余逗号或非 JSON 格式内容
 选择器规范：
 支持 CSS 选择器语法（如 [href^="http"] 匹配链接）
-确保选择器唯一性（避免修改 / 删除多个元素时出错）`;
-
-    // 模式专用提示词
-    private readonly modePrompts = {
-        planning: `你是一位任务规划专家。请将用户目标分解为可执行的步骤序列。输出格式：{ steps: [{id:1, action:"操作描述", selector:"选择器"}] }`,
-        action: `你是一位任务执行专家。请执行指定操作。输出格式：{ success: true, message: "执行结果" }`,
-        review: `你是一位质量检查专家。请验证任务执行结果。输出格式：{ passed: true, issues: ["问题描述"] }`,
-        evaluation: `你是一位任务评估专家。请评估任务完成情况。输出格式：{ completed: true, score: 90, feedback: "评估反馈" }`
+确保选择器唯一性（避免修改 / 删除多个元素时出错）`,
+        review: () => `你是一位质量检查专家。你能查看到当前页面的所有元素，请验证任务执行结果。`,
+        evaluation: () => `你是一位任务评估专家。请评估任务完成情况。输出格式：{ completed: true, score: 90, feedback: "评估反馈" }`
     };
 
     /**
@@ -65,6 +76,50 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
      */
     async executeUserGoal(goal: string): Promise<void> {
         await this.supervisor.executeGoal(goal);
+    }
+
+    /**
+     * 简单判断用户的输入与要求
+     * 返回 Boolean
+     * @param input 用户输入
+     * @param requirement 判断条件
+     * @return Boolean 是否满足条件
+     **/
+    async judgeUserInput(input: string, requirement: string): Promise<boolean> {
+        // 调用大模型判断
+        let checkResult = false as boolean;
+        try {
+            const response = await axios.post(
+                this.modelConfig.url,
+                {
+                    model: this.modelConfig.model,
+                    messages: [
+                        {
+                            role: "system",
+                            content: `你是一个判断专家，判断条件是${requirement}。请根据以下要求进行判断。只输出是或者否即可`
+                        },
+                        {
+                            role: "user",
+                            content: `${input}`
+                        }
+                    ],
+                    temperature: 0.7,
+                    max_tokens: -1,
+                    stream: false,
+                },
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${this.modelConfig.apiKey}`
+                    }
+                }
+            )
+            checkResult = response.data.choices[0].message.content.indexOf("是") > -1
+        } catch (error) {
+
+        }
+        return checkResult
+
     }
 
     /**
@@ -108,7 +163,7 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
                     messages: [
                         {
                             role: "system",
-                            content: this.modePrompts[mode] || this.default_prompt
+                            content: this.modePrompts[mode](instruction)
                         },
                         {
                             role: "user",
@@ -116,7 +171,7 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
                         }
                     ],
                     temperature: 0.7,
-                    max_tokens: 4096,
+                    max_tokens: -1,
                     stream: false,
                 },
                 { headers }
@@ -129,11 +184,7 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
                 .replace("```", "")
                 .trim();
 
-            try {
-                return JSON.parse(cleanResponse);
-            } catch {
-                return { response: cleanResponse };
-            }
+            return cleanResponse
         } catch (error: any) {
             console.error(`模型请求失败 (${mode}模式):`, error);
             return {
@@ -143,6 +194,8 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
         }
     }
 }
+
+
 
 // 导出全局服务实例
 export const modelEngineService = new ModelEngineService();

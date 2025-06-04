@@ -63,23 +63,6 @@
       </div>
     </template>
   </div>
-
-  <!-- 代理状态显示区域 -->
-  <div
-    class="agent-status-area"
-    v-if="agentStates.length > 0"
-  >
-    <h3>代理状态</h3>
-    <div
-      v-for="(agent, index) in agentStates"
-      :key="index"
-      class="agent-status"
-    >
-      <div class="agent-id">代理 {{ agent.id }}</div>
-      <div class="agent-mode">模式: {{ formatMode(agent.currentMode) }}</div>
-      <div class="agent-history">切换次数: {{ agent.modeHistory.length }}</div>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">

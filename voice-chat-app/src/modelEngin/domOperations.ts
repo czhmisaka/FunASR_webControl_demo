@@ -169,3 +169,24 @@ export const handleInstructions = (response: string, container: HTMLElement): bo
         return false;
     }
 };
+
+// 新增基础DOM操作
+export const domBaseOperations = {
+    clickElement: (selector: string) => {
+        const el = document.querySelector(selector);
+        if (el) {
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            return `Clicked: ${selector}`;
+        }
+        throw new Error(`Element not found: ${selector}`);
+    },
+    setInputValue: (selector: string, value: string) => {
+        const input = document.querySelector(selector) as HTMLInputElement;
+        if (input) {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return `Set ${selector} value to: ${value}`;
+        }
+        throw new Error(`Input not found: ${selector}`);
+    }
+};

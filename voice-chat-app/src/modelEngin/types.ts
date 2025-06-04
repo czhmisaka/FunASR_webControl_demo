@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-04 09:29:09
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-04 13:09:06
+ * @LastEditTime: 2025-06-04 13:34:50
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/modelEngin/types.ts
  */
 /**
@@ -15,13 +15,29 @@ export interface ModelConfig {
     apiKey: string;
 }
 
+// 扩展全局Window接口
+declare global {
+    interface Window {
+        __directiveAPI: {
+            executeDirective: (directive: Directive) => string;
+        };
+    }
+}
+
 // 指令负载类型
 export interface InstructionPayload {
     tag?: string;
-    attrs?: Record<string, string>;
-    content?: string;
     selector?: string;
+    attrs?: Record<string, string | number | boolean>;
+    content?: string;
     modifications?: Record<string, any>;
+}
+
+// 新增指令类型
+export type DOMAction = 'clickElement' | 'setInputValue';
+export interface Directive {
+    action: DOMAction;
+    params: any[];
 }
 
 // 消息类型
