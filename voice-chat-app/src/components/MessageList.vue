@@ -63,10 +63,28 @@
       </div>
     </template>
   </div>
+
+  <!-- 代理状态显示区域 -->
+  <div
+    class="agent-status-area"
+    v-if="agentStates.length > 0"
+  >
+    <h3>代理状态</h3>
+    <div
+      v-for="(agent, index) in agentStates"
+      :key="index"
+      class="agent-status"
+    >
+      <div class="agent-id">代理 {{ agent.id }}</div>
+      <div class="agent-mode">模式: {{ formatMode(agent.currentMode) }}</div>
+      <div class="agent-history">切换次数: {{ agent.modeHistory.length }}</div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { watch, nextTick, ref } from "vue";
+import { watch, nextTick, ref, onMounted } from "vue";
+import { modelEngineService } from "../modelEngin/modelEngineService";
 
 defineOptions({
   name: "MessageList",
@@ -83,6 +101,39 @@ const props = defineProps({
 });
 
 const messagesContainer = ref<HTMLElement | null>(null);
+const agentStates = ref<any[]>([]);
+
+// 格式化模式显示
+const formatMode = (mode: string) => {
+  const modeMap: Record<string, string> = {
+    planning: "规划",
+    action: "行动",
+    review: "检查",
+    evaluation: "评价",
+  };
+  return modeMap[mode] || mode;
+};
+
+// 更新代理状态
+const updateAgentStates = () => {
+  try {
+    const agents = modelEngineService.supervisor.getAllAgents();
+    agentStates.value = agents.map((agent) => ({
+      id: agent.id,
+      currentMode: agent.currentMode,
+      modeHistory: agent.modeHistory,
+    }));
+  } catch (error) {
+    console.error("获取代理状态失败:", error);
+    agentStates.value = [];
+  }
+};
+
+// 初始加载和定期更新代理状态
+onMounted(() => {
+  updateAgentStates();
+  setInterval(updateAgentStates, 2000);
+});
 
 // 格式化耗时显示
 const formatDuration = (ms: number) => {

@@ -1,8 +1,26 @@
 import axios from "axios";
-import type { ModelConfig, Message } from "./types";
+import type { ModelConfig } from "./types";
+import { Supervisor } from './supervisor';
 
-// 默认系统提示词
-export const default_prompt = `
+/**
+ * 模型引擎服务类
+ */
+export class ModelEngineService {
+    public readonly supervisor: Supervisor;
+    private modelConfig: ModelConfig;
+
+    constructor() {
+        // 使用默认配置初始化
+        this.modelConfig = {
+            model: "qwen3-0.6b",
+            url: "http://127.0.0.1:1234/v1/chat/completions",
+            apiKey: ""
+        };
+        this.supervisor = new Supervisor(this, this.modelConfig);
+    }
+
+    // 默认系统提示词
+    private readonly default_prompt = `
 当你判断用户只是普通聊天，那就用简短的回答回应用户即可。
 当你判断需要进行页面元素操作时，请严格按照以下 JSON 格式输出操作指令，确保语法正确且字段完整：
 {
@@ -33,120 +51,98 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
 支持 CSS 选择器语法（如 [href^="http"] 匹配链接）
 确保选择器唯一性（避免修改 / 删除多个元素时出错）`;
 
-/**
- * 检测消息类型（普通消息/指令）
- * @param text 消息文本
- * @returns 消息类型 (ai/instruction)
- */
-export const detectMessageType = (text: string): string => {
-    try {
-        JSON.parse(text);
-        return "instruction";
-    } catch {
-        return text.includes("操作指令") ? "instruction" : "ai";
+    // 模式专用提示词
+    private readonly modePrompts = {
+        planning: `你是一位任务规划专家。请将用户目标分解为可执行的步骤序列。输出格式：{ steps: [{id:1, action:"操作描述", selector:"选择器"}] }`,
+        action: `你是一位任务执行专家。请执行指定操作。输出格式：{ success: true, message: "执行结果" }`,
+        review: `你是一位质量检查专家。请验证任务执行结果。输出格式：{ passed: true, issues: ["问题描述"] }`,
+        evaluation: `你是一位任务评估专家。请评估任务完成情况。输出格式：{ completed: true, score: 90, feedback: "评估反馈" }`
+    };
+
+    /**
+     * 处理用户目标输入
+     * @param goal 用户目标
+     */
+    async executeUserGoal(goal: string): Promise<void> {
+        await this.supervisor.executeGoal(goal);
     }
-};
 
-/**
- * 发送消息到大模型
- * @param userMessage 用户消息
- * @param modelConfig 模型配置
- * @param pageContent 当前页面内容
- * @returns 解析后的AI响应
- */
-export const sendToModel = async (
-    userMessage: string,
-    modelConfig: ModelConfig,
-    pageContent?: string
-): Promise<{ response: string; duration: number }> => {
-    const startTime = Date.now();
+    /**
+     * 更新模型配置
+     * @param config 新模型配置
+     */
+    updateModelConfig(config: ModelConfig): void {
+        this.modelConfig = config;
+    }
 
-    // 自动转换旧版模型名称格式
-    const finalModelName = modelConfig.model
+    /**
+     * 执行模型指令（代理专用）
+     * @param instruction 指令内容
+     * @param mode 代理模式
+     * @param modelConfig 模型配置
+     * @returns 解析后的响应对象
+     */
+    async executeModelInstruction(
+        instruction: string,
+        mode: 'planning' | 'action' | 'review' | 'evaluation',
+        modelConfig: ModelConfig
+    ): Promise<any> {
+        const startTime = Date.now();
 
-    let checkResult = false;
-    try {
-        // 检查是否需要页面操作
-        const checkResponse = await axios.post(
-            "http://127.0.0.1:1234/v1/chat/completions",
-            {
-                model: "qwen3-0.6b",
-                messages: [
-                    {
-                        role: "system",
-                        content: `请判断如下语句中是否存在对页面元素的操作？只输出 是 或者 否，不要输出其余任何内容`,
-                    },
-                    { role: "user", content: userMessage + "/no_think" },
-                ],
-                temperature: 0.7,
-                max_tokens: 2048,
-                stream: false,
+        try {
+            // 准备请求头
+            const headers: Record<string, string> = {
+                "Content-Type": "application/json",
+            };
+
+            // 添加API Key认证
+            if (modelConfig.apiKey) {
+                headers["Authorization"] = `Bearer ${modelConfig.apiKey}`;
             }
-        );
-        checkResult = checkResponse.data.choices[0].message.content.includes("是");
-    } catch (error) {
-        console.error("检查请求失败:", error);
-        throw new Error("检查请求失败，继续发送消息");
-    }
 
-    try {
-        // 准备请求头
-        const headers: Record<string, string> = {
-            "Content-Type": "application/json",
-        };
+            // 发送请求
+            const response = await axios.post(
+                modelConfig.url,
+                {
+                    model: modelConfig.model,
+                    messages: [
+                        {
+                            role: "system",
+                            content: this.modePrompts[mode] || this.default_prompt
+                        },
+                        {
+                            role: "user",
+                            content: instruction + "\n/no_think"
+                        }
+                    ],
+                    temperature: 0.7,
+                    max_tokens: 4096,
+                    stream: false,
+                },
+                { headers }
+            );
 
-        // 添加API Key认证
-        if (modelConfig.apiKey) {
-            headers["Authorization"] = `Bearer ${modelConfig.apiKey}`;
+            // 处理响应
+            const aiResponse = response.data.choices[0].message.content;
+            const cleanResponse = aiResponse
+                .replace("```json", "")
+                .replace("```", "")
+                .trim();
+
+            try {
+                return JSON.parse(cleanResponse);
+            } catch {
+                return { response: cleanResponse };
+            }
+        } catch (error: any) {
+            console.error(`模型请求失败 (${mode}模式):`, error);
+            return {
+                error: `模型请求失败: ${error.message || '未知错误'}`,
+                duration: Date.now() - startTime
+            };
         }
-
-        // 发送主请求
-        const response = await axios.post(
-            modelConfig.url,
-            {
-                model: finalModelName, // 使用转换后的模型名称
-                messages: [
-                    {
-                        role: "system",
-                        content: default_prompt,
-                    },
-                    {
-                        role: "user",
-                        content:
-                            (checkResult && pageContent
-                                ? `当前页面内容为【${pageContent}】\n\n${userMessage}`
-                                : userMessage) + "\n/no_think",
-                    },
-                ],
-                temperature: 0.7,
-                max_tokens: 4096,
-                stream: false,
-            },
-            { headers }
-        );
-
-        // 处理响应
-        const aiResponse = response.data.choices[0].message.content;
-        const cleanResponse = aiResponse
-            .replace("```json", "")
-            .replace("```", "")
-            .trim();
-
-        return {
-            response: cleanResponse,
-            duration: Date.now() - startTime,
-        };
-    } catch (error: any) {
-        console.error("模型请求失败:", error);
-
-        // 增强错误处理
-        let errorMsg = "模型请求失败";
-        if (error.response?.status === 404) {
-            errorMsg = `模型未找到: ${finalModelName}，请检查模型名称配置`;
-        } else if (error.response?.data?.error?.message) {
-            errorMsg = error.response.data.error.message;
-        }
-
-        throw new Error(errorMsg);
     }
-};
+}
+
+// 导出全局服务实例
+export const modelEngineService = new ModelEngineService();

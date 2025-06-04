@@ -3,6 +3,16 @@
     <!-- 消息显示区域 -->
     <MessageList :grouped-messages="groupedMessages" />
 
+    <!-- 目标输入区域 -->
+    <div class="goal-input-area">
+      <input
+        v-model="goalText"
+        placeholder="请输入目标指令"
+        @keyup.enter="executeGoal"
+      />
+      <button @click="executeGoal">执行目标</button>
+    </div>
+
     <!-- 底部输入区域 -->
     <InputController
       v-model="inputText"
@@ -30,14 +40,11 @@
 
 <script setup lang="ts">
 import { ref, onBeforeUnmount, computed, onMounted } from "vue";
+import { modelEngineService } from "../modelEngin/modelEngineService";
 import Recorder from "recorder-core";
 import MessageList from "../components/MessageList.vue";
 import InputController from "../components/InputController.vue";
 import ModelConfigDialog from "../components/ModelConfigDialog.vue";
-import {
-  detectMessageType,
-  sendToModel,
-} from "../modelEngin/modelEngineService";
 import {
   handleInstructions as handleDomInstructions,
   queryElement,
@@ -47,6 +54,7 @@ import {
 import "recorder-core/src/engine/pcm";
 
 const inputText = ref("");
+const goalText = ref("");
 const messages = ref<{ text: string; type: string; duration?: number }[]>([]);
 const isRecording = ref(false);
 const inputMode = ref<"manual" | "voice">("manual");
@@ -152,6 +160,32 @@ const saveModelConfig = (e: any) => {
   });
 };
 
+// 执行目标指令
+const executeGoal = async () => {
+  if (!goalText.value.trim()) return;
+
+  try {
+    messages.value.push({
+      text: `开始执行目标: ${goalText.value}`,
+      type: "info",
+    });
+
+    await modelEngineService.executeUserGoal(goalText.value);
+
+    messages.value.push({
+      text: `目标执行完成: ${goalText.value}`,
+      type: "success",
+    });
+  } catch (error: any) {
+    messages.value.push({
+      text: `目标执行失败: ${error.message || error}`,
+      type: "error",
+    });
+  } finally {
+    goalText.value = "";
+  }
+};
+
 // 发送文本消息
 const sendTextMessage = async (text: string) => {
   if (!text.trim()) return;
@@ -175,14 +209,30 @@ const sendTextMessage = async (text: string) => {
       });
     }
     // 发送到模型引擎
-    const { response, duration } = await sendToModel(
+    const response = await modelEngineService.executeModelInstruction(
       userMessage,
-      modelConfig.value,
-      pageContent
+      "action",
+      modelConfig.value
     );
 
-    // 添加AI回复
-    const aiType = detectMessageType(response);
+    let aiResponse = "";
+    let duration = 0;
+    let aiType = "info";
+
+    if (response.response) {
+      aiResponse =
+        typeof response.response === "string"
+          ? response.response
+          : JSON.stringify(response.response);
+      aiType = aiResponse.includes('"type": "dom/') ? "instruction" : "ai";
+    } else if (response.error) {
+      aiResponse = response.error;
+      aiType = "error";
+    }
+
+    if (response.duration) {
+      duration = response.duration;
+    }
     messages.value.push({
       text: response,
       type: aiType,

@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-04 09:29:09
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-04 09:29:24
+ * @LastEditTime: 2025-06-04 13:09:06
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/modelEngin/types.ts
  */
 /**
@@ -35,4 +35,38 @@ export interface Message {
 export interface MessageGroup {
     type: string;
     messages: Message[];
+}
+
+// 代理模式枚举
+export enum AgentMode {
+    PLANNING = 'planning',
+    ACTION = 'action',
+    REVIEW = 'review',
+    EVALUATION = 'evaluation'
+}
+
+// 模式转换记录
+export interface ModeTransition {
+    from: AgentMode;
+    to: AgentMode;
+    timestamp: Date;
+    reason: string;
+}
+
+// 模型引擎服务接口
+export interface ModelEngineService {
+    executeModelInstruction(
+        instruction: string,
+        mode: 'planning' | 'action' | 'review' | 'evaluation',
+        modelConfig: ModelConfig
+    ): Promise<any>;
+}
+
+// 代理接口
+export interface IAgent {
+    id: string;
+    currentMode: AgentMode;
+    modeHistory: ModeTransition[];
+    transitionMode(newMode: AgentMode, reason: string): void;
+    executeTask(task: string): Promise<any>;
 }
