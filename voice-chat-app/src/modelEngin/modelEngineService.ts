@@ -1,6 +1,7 @@
 import axios from "axios";
-import type { ModelConfig } from "./types";
+import type { ModelConfig, Message, MessageType } from "./types";
 import { Supervisor } from './supervisor';
+import { queryElement } from "./domOperations";
 
 /**
  * 模型引擎服务类
@@ -8,15 +9,41 @@ import { Supervisor } from './supervisor';
 export class ModelEngineService {
     public readonly supervisor: Supervisor;
     private modelConfig: ModelConfig;
+    private agentMessages: Message[] = []; // 存储代理消息
 
     constructor() {
         // 使用默认配置初始化
         this.modelConfig = {
-            model: "qwen3-0.6b",
-            url: "http://127.0.0.1:1234/v1/chat/completions",
+            // model: "qwen3-0.6b",
+            model: "qwen/qwen3-8b",
+            url: "http://192.168.31.126:1234/v1/chat/completions",
+            // url: "http://127.0.0.1:1234/v1/chat/completions",
             apiKey: ""
         };
         this.supervisor = new Supervisor(this, this.modelConfig);
+    }
+
+    /**
+     * 推送代理消息
+     * @param text 消息文本
+     * @param type 消息类型
+     * @param meta 元数据
+     */
+    public pushAgentMessage(text: string, type: MessageType, meta?: any) {
+        const newMessage: Message = {
+            text,
+            type,
+            meta
+        };
+        this.agentMessages.push(newMessage);
+        // 这里可以添加事件通知机制（后续实现）
+    }
+
+    /**
+     * 获取所有代理消息
+     */
+    public getAgentMessages(): Message[] {
+        return [...this.agentMessages];
     }
 
     private readonly basePowerPrompts = `
@@ -31,7 +58,7 @@ review：检查任务执行结果，在review模式中，你能查看到当前�
     private readonly modePrompts = {
         planning: (userinput?: string) => `
 ${this.basePowerPrompts}
-当前处于planning，请根据用户输入进行任务规划。
+当前处于planning，请根据用户输入进行任务规划。每一条任务应当都是一个独立的任务指令，且每个任务指令都应当是一个完整的句子。
 当前用户的要求是：${userinput}
         `,
         action: () => `
@@ -66,7 +93,7 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
 选择器规范：
 支持 CSS 选择器语法（如 [href^="http"] 匹配链接）
 确保选择器唯一性（避免修改 / 删除多个元素时出错）`,
-        review: () => `你是一位质量检查专家。你能查看到当前页面的所有元素，请验证任务执行结果。`,
+        review: () => `你会在审查模式中检查任务执行结果。请根据当前页面的元素状态和任务要求，判断任务是否完成。若任务没有完成，则给出下一步建议。`,
         evaluation: () => `你是一位任务评估专家。请评估任务完成情况。输出格式：{ completed: true, score: 90, feedback: "评估反馈" }`
     };
 
@@ -89,11 +116,11 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
             const response = await this.sendModelRequest([
                 {
                     role: "system",
-                    content: `你是一个判断专家，判断条件是${requirement}。请根据以下要求进行判断。只输出是或者否即可`
+                    content: `你是一个判断专家，判断条件是${requirement}。请根据以下要求进行判断。只输出 是 或者 否 ,不要输出其他任何思考内容。`
                 },
                 {
                     role: "user",
-                    content: input
+                    content: input + '/no_think'
                 }
             ], this.modelConfig);
 
@@ -193,6 +220,10 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
                 {
                     role: "system",
                     content: this.modePrompts.review()
+                }, {
+                    role: 'user',
+                    // 需要增加当前容器内的元素列表
+                    content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
                 },
                 {
                     role: "user",

@@ -71,11 +71,21 @@ interface MessageGroup {
 }
 
 // 消息分组计算属性
+// 获取代理消息
+const agentMessages = computed(() => {
+  return modelEngineService.getAgentMessages();
+});
+
+// 合并用户消息和代理消息
+const allMessages = computed(() => {
+  return [...messages.value, ...agentMessages.value];
+});
+
 const groupedMessages = computed<MessageGroup[]>(() => {
   const result: MessageGroup[] = [];
   let currentGroup: MessageGroup | null = null;
 
-  for (const msg of messages.value) {
+  for (const msg of allMessages.value) {
     if (msg.type === "user") {
       if (currentGroup) {
         result.push(currentGroup);

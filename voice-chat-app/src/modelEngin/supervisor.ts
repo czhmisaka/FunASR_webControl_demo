@@ -4,10 +4,12 @@
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/modelEngin/supervisor.ts
  */
 import { v4 as uuidv4 } from 'uuid';
-import { AgentMode } from './types';
-import type { IAgent, ModelEngineService, ModelConfig, Directive, DOMAction } from './types';
+import { SystemMode } from './types';
+import type { IAgent, ModelEngineService, ModelConfig, Directive, DOMAction, Task } from './types';
 import { AgentBase } from './agentBase';
-import { domBaseOperations } from './domOperations';
+import { StateMachineEngine } from './stateMachine';
+import { ToolScheduler } from './toolScheduler';
+import { domBaseOperations, handleInstructions } from './domOperations';
 
 /**
  * 监督器类，管理多个代理
@@ -18,17 +20,20 @@ export class Supervisor {
     private isRunning: boolean = false;
     private modelConfig: ModelConfig;
     private modelService: ModelEngineService;
+    private stateMachine: StateMachineEngine;
+    private toolScheduler: ToolScheduler;
 
-    // 新增指令执行接口
-    public executeDirective(directive: Directive): string {
+    // 新增指令执行接口（通过工具调度器）
+    public async executeDirective(directive: Directive): Promise<string> {
         try {
-            switch (directive.action) {
-                case 'clickElement':
-                    return domBaseOperations.clickElement(directive.params[0]);
-                case 'setInputValue':
-                    return domBaseOperations.setInputValue(directive.params[0], directive.params[1]);
-                default:
-                    throw new Error(`Unsupported action: ${directive.action}`);
+            // 通过工具调度器执行DOM操作
+            const toolId = `dom_${directive.action}`;
+            const result = await this.toolScheduler.executeTool(toolId, directive.params, 'supervisor');
+
+            if (result.status === 'success') {
+                return result.result as string;
+            } else {
+                throw new Error(result.message || '工具执行失败');
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
@@ -39,6 +44,26 @@ export class Supervisor {
     constructor(modelService: ModelEngineService, modelConfig: ModelConfig) {
         this.modelService = modelService;
         this.modelConfig = modelConfig;
+        this.stateMachine = new StateMachineEngine(modelService, modelConfig);
+        this.toolScheduler = new ToolScheduler();
+
+        // 注册所有DOM操作工具
+        this.toolScheduler.registerTool('dom', {
+            execute: (params: { instruction: string; container: HTMLElement }) => {
+                return handleInstructions(params.instruction, params.container);
+            }
+        });
+
+        // 注册基础DOM操作工具
+        this.toolScheduler.registerTool('dom_clickElement', {
+            execute: (selector: string) => domBaseOperations.clickElement(selector)
+        });
+
+        this.toolScheduler.registerTool('dom_setInputValue', {
+            execute: (selector: string, value: string) =>
+                domBaseOperations.setInputValue(selector, value)
+        });
+
         // 初始化代理
         this.addAgent();
 
@@ -50,7 +75,7 @@ export class Supervisor {
      * 添加新代理
      */
     addAgent(): IAgent {
-        const newAgent = new AgentBase(this.modelService, this.modelConfig);
+        const newAgent = new AgentBase(this.modelService, this.modelConfig, this.toolScheduler);
         this.agents.push(newAgent);
         return newAgent;
     }
@@ -79,21 +104,75 @@ export class Supervisor {
     }
 
     /**
-     * 执行用户目标
+     * 使用大模型解析用户输入为结构化任务
+     */
+    private async parseUserGoal(goal: string): Promise<Task> {
+        // 使用提示词要求模型返回结构化任务
+        const prompt = `将用户目标解析为结构化任务：
+用户目标: ${goal}
+
+返回JSON格式：
+{
+  "task_id": "生成的UUID",
+  "intent": "任务意图",
+  "params": { 关键参数 },
+  "priority": "low/medium/high",
+  "deadline": "可选截止时间",
+  "subtasks": [子任务数组]
+}`;
+
+        const modelResponse = await this.modelService.executeModelInstruction(
+            prompt,
+            'planning',
+            this.modelConfig
+        );
+
+        try {
+            // 尝试解析模型响应
+            const task = JSON.parse(modelResponse) as Task;
+            task.task_id = task.task_id || uuidv4();
+            return task;
+        } catch (error) {
+            // 解析失败时返回简化任务
+            return {
+                task_id: uuidv4(),
+                intent: 'user_goal',
+                params: { goal },
+                priority: 'medium',
+                subtasks: []
+            };
+        }
+    }
+
+    /**
+     * 执行用户目标（使用状态机驱动工作流）
      * @param goal 用户输入的目标
      */
     async executeGoal(goal: string): Promise<void> {
         this.activeGoal = goal;
         this.isRunning = true;
 
+        // 解析用户目标为结构化任务
+        const task = await this.parseUserGoal(goal);
+        console.log('结构化任务:', task);
+
         // 创建初始规划代理
         const planningAgent = this.addAgent();
-        planningAgent.transitionMode(AgentMode.PLANNING, "初始目标规划");
+        planningAgent.transitionMode(SystemMode.PLANNING, "初始目标规划");
 
         try {
-            while (this.isRunning && this.agents.length > 0) {
-                // 选择当前模式最合适的代理
-                const activeAgent = this.selectActiveAgent();
+            while (this.isRunning && !this.stateMachine.isComplete() && this.agents.length > 0) {
+                // 获取当前状态
+                const currentState = this.stateMachine.current_state;
+
+                // 根据状态选择代理
+                let activeAgent = this.agents.find(agent =>
+                    agent.currentMode === currentState
+                );
+
+                if (!activeAgent) {
+                    activeAgent = this.selectActiveAgent();
+                }
 
                 if (!activeAgent) {
                     this.isRunning = false;
@@ -104,18 +183,33 @@ export class Supervisor {
                 const result = await activeAgent.executeTask(this.activeGoal);
                 console.log(`代理执行结果:`, result);
 
-                // 根据结果决定下一步行动
-                const nextAction = this.determineNextAction(result, activeAgent);
+                // 更新任务状态
+                task.subtasks = task.subtasks || [];
+                task.subtasks.push({
+                    subtask_id: uuidv4(),
+                    description: `State: ${currentState}, Result: ${JSON.stringify(result)}`,
+                    required_capabilities: [],
+                    output_format: 'text'
+                });
 
-                // 执行下一步行动
-                this.handleNextAction(nextAction, result);
+                // 状态转换（使用智能决策）
+                const nextState = await this.stateMachine.transition(result) as SystemMode;
+
+                // 更新代理模式以匹配状态机
+                activeAgent.transitionMode(nextState, '状态机决策更新');
 
                 // 添加延迟避免CPU过载
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
+
+            if (this.stateMachine.isComplete()) {
+                console.log("任务完成:", task);
+            }
         } catch (error) {
             console.error("目标执行失败:", error);
             this.isRunning = false;
+        } finally {
+            this.stopAll();
         }
     }
 
@@ -123,113 +217,10 @@ export class Supervisor {
      * 选择当前最合适的代理
      */
     private selectActiveAgent(): IAgent | undefined {
-        // 选择当前模式最适合的代理
-        const modePriority = [
-            AgentMode.PLANNING,
-            AgentMode.ACTION,
-            AgentMode.REVIEW,
-            AgentMode.EVALUATION
-        ];
-
-        // 按模式优先级选择代理
-        for (const mode of modePriority) {
-            const agent = this.agents.find(a => a.currentMode === mode);
-            if (agent) return agent;
-        }
-
-        // 默认返回第一个代理
-        return this.agents[0];
-    }
-
-    /**
-     * 根据执行结果确定下一步行动
-     * @param result 代理执行结果
-     * @param agent 当前代理
-     */
-    private determineNextAction(result: any, agent: IAgent): { action: 'switchMode' | 'createAgent' | 'removeAgent' | 'complete', details?: any } {
-        // 根据代理当前模式和结果决定下一步
-        switch (agent.currentMode) {
-            case AgentMode.PLANNING:
-                // 规划完成后切换到行动模式
-                return {
-                    action: 'switchMode',
-                    details: {
-                        agentId: agent.id,
-                        newMode: AgentMode.ACTION,
-                        reason: '规划完成，开始执行'
-                    }
-                };
-
-            case AgentMode.ACTION:
-                // 行动完成后切换到检查模式
-                return {
-                    action: 'switchMode',
-                    details: {
-                        agentId: agent.id,
-                        newMode: AgentMode.REVIEW,
-                        reason: '行动完成，开始检查'
-                    }
-                };
-
-            case AgentMode.REVIEW:
-                // 检查完成后切换到评价模式
-                return {
-                    action: 'switchMode',
-                    details: {
-                        agentId: agent.id,
-                        newMode: AgentMode.EVALUATION,
-                        reason: '检查完成，开始评价'
-                    }
-                };
-
-            case AgentMode.EVALUATION:
-                if (result.completed) {
-                    // 评价完成且任务成功
-                    return { action: 'complete' };
-                } else {
-                    // 需要重新规划
-                    return {
-                        action: 'switchMode',
-                        details: {
-                            agentId: agent.id,
-                            newMode: AgentMode.PLANNING,
-                            reason: '评价未通过，重新规划'
-                        }
-                    };
-                }
-
-            default:
-                return { action: 'complete' };
-        }
-    }
-
-    /**
-     * 处理下一步行动
-     * @param nextAction 下一步行动指令
-     * @param result 当前执行结果
-     */
-    private handleNextAction(nextAction: { action: 'switchMode' | 'createAgent' | 'removeAgent' | 'complete', details?: any }, result: any): void {
-        switch (nextAction.action) {
-            case 'switchMode':
-                const agent = this.getAgent(nextAction.details.agentId);
-                if (agent) {
-                    agent.transitionMode(nextAction.details.newMode, result.transitionReason || "模式切换");
-                }
-                break;
-
-            case 'createAgent':
-                this.addAgent().transitionMode(AgentMode.PLANNING, "创建新代理");
-                break;
-
-            case 'removeAgent':
-                this.removeAgent(nextAction.details.agentId);
-                break;
-
-            case 'complete':
-                this.isRunning = false;
-                console.log("目标完成:", this.activeGoal);
-                break;
-        }
+        // 直接匹配当前状态机状态
+        return this.agents.find(agent =>
+            agent.currentMode === this.stateMachine.current_state
+        ) || this.agents[0];
     }
 
     /**

@@ -20,6 +20,7 @@ export const parseStyleString = (styleStr: string): Record<string, string> => {
  * @param payload 创建指令负载
  */
 export const createElement = (container: HTMLElement, payload: InstructionPayload) => {
+    console.log("创建元素", payload);
     if (!payload.tag) {
         throw new Error("创建元素缺少必要参数: tag");
     }

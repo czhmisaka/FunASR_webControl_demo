@@ -20,15 +20,19 @@
         >
           <div
             class="message-icon"
-            v-if="['info', 'error','success',].indexOf(msg.type)>-1"
+            v-if="shouldShowIcon(msg.type)"
           >
             <template v-if="msg.type === 'info'">ℹ️</template>
             <template v-else-if="msg.type === 'error'">❌</template>
             <template v-else-if="msg.type === 'success'">✅</template>
+            <template v-else-if="msg.type === 'agent-planning'">📝</template>
+            <template v-else-if="msg.type === 'agent-action'">⚡</template>
+            <template v-else-if="msg.type === 'agent-result'">✅</template>
+            <template v-else-if="msg.type === 'agent-state'">🔄</template>
           </div>
           <div class="content-wrapper">
             <div class="message-content">
-              {{ isJsonInstruction(msg.text) ? truncateJson(msg.text) : msg.text }}
+              {{ formatMessageContent(msg.text, msg.type) }}
             </div>
             <div
               v-if="msg.duration"
@@ -45,15 +49,19 @@
       >
         <div
           class="message-icon"
-          v-if="['info', 'error','success',].indexOf(item.type)>-1"
+          v-if="shouldShowIcon(item.type)"
         >
           <template v-if="item.type === 'info'">ℹ️</template>
           <template v-else-if="item.type === 'error'">❌</template>
           <template v-else-if="item.type === 'success'">✅</template>
+          <template v-else-if="item.type === 'agent-planning'">📝</template>
+          <template v-else-if="item.type === 'agent-action'">⚡</template>
+          <template v-else-if="item.type === 'agent-result'">✅</template>
+          <template v-else-if="item.type === 'agent-state'">🔄</template>
         </div>
         <div class="content-wrapper">
           <div class="message-content">
-            {{ isJsonInstruction(item.messages[0].text) ? truncateJson(item.messages[0].text) : item.messages[0].text }}
+            {{ formatMessageContent(item.messages[0].text, item.type) }}
           </div>
           <div
             v-if="item.messages[0].duration"
@@ -86,15 +94,29 @@ const props = defineProps({
 const messagesContainer = ref<HTMLElement | null>(null);
 const agentStates = ref<any[]>([]);
 
-// 格式化模式显示
-const formatMode = (mode: string) => {
-  const modeMap: Record<string, string> = {
-    planning: "规划",
-    action: "行动",
-    review: "检查",
-    evaluation: "评价",
-  };
-  return modeMap[mode] || mode;
+// 判断是否显示图标
+const shouldShowIcon = (type: string): boolean => {
+  const iconTypes = [
+    "info",
+    "error",
+    "success",
+    "agent-planning",
+    "agent-action",
+    "agent-result",
+    "agent-state",
+  ];
+  return iconTypes.includes(type);
+};
+
+// 格式化消息内容
+const formatMessageContent = (text: string, type: string): string => {
+  // 代理状态消息特殊处理
+  if (type === "agent-state") {
+    return `🔄 ${text}`;
+  }
+
+  // 其他消息类型保持原样
+  return text;
 };
 
 // 更新代理状态
@@ -122,17 +144,6 @@ onMounted(() => {
 const formatDuration = (ms: number) => {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
-};
-
-// 检测是否为JSON指令
-const isJsonInstruction = (text: string): boolean => {
-  return /^\s*\{.*\}\s*$/.test(text);
-};
-
-// 截取JSON指令显示
-const truncateJson = (json: string): string => {
-  if (json.length <= 40) return json;
-  return `${json.substring(0, 20)}...${json.substring(json.length - 20)}`;
 };
 
 watch(
