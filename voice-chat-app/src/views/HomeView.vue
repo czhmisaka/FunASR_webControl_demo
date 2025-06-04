@@ -168,8 +168,8 @@ const executeGoal = async (goalText: string) => {
       text: `开始执行目标: ${goalText}`,
       type: "info",
     });
-
-    await modelEngineService.executeUserGoal(goalText);
+    const that = this;
+    await modelEngineService.executeUserGoal(goalText, that);
 
     messages.value.push({
       text: `目标执行完成: ${goalText}`,

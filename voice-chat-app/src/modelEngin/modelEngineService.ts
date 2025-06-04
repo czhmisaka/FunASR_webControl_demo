@@ -74,52 +74,34 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
      * 处理用户目标输入
      * @param goal 用户目标
      */
-    async executeUserGoal(goal: string): Promise<void> {
+    async executeUserGoal(goal: string, that: any): Promise<void> {
         await this.supervisor.executeGoal(goal);
     }
 
     /**
-     * 简单判断用户的输入与要求
-     * 返回 Boolean
+     * 简单判断用户的输入是否符合要求
      * @param input 用户输入
      * @param requirement 判断条件
-     * @return Boolean 是否满足条件
-     **/
+     * @returns 是否符合条件
+     */
     async judgeUserInput(input: string, requirement: string): Promise<boolean> {
-        // 调用大模型判断
-        let checkResult = false as boolean;
         try {
-            const response = await axios.post(
-                this.modelConfig.url,
+            const response = await this.sendModelRequest([
                 {
-                    model: this.modelConfig.model,
-                    messages: [
-                        {
-                            role: "system",
-                            content: `你是一个判断专家，判断条件是${requirement}。请根据以下要求进行判断。只输出是或者否即可`
-                        },
-                        {
-                            role: "user",
-                            content: `${input}`
-                        }
-                    ],
-                    temperature: 0.7,
-                    max_tokens: -1,
-                    stream: false,
+                    role: "system",
+                    content: `你是一个判断专家，判断条件是${requirement}。请根据以下要求进行判断。只输出是或者否即可`
                 },
                 {
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${this.modelConfig.apiKey}`
-                    }
+                    role: "user",
+                    content: input
                 }
-            )
-            checkResult = response.data.choices[0].message.content.indexOf("是") > -1
-        } catch (error) {
+            ], this.modelConfig);
 
+            return response.indexOf("是") > -1;
+        } catch (error: any) {
+            console.error('用户输入判断失败:', error);
+            return false;
         }
-        return checkResult
-
     }
 
     /**
@@ -131,11 +113,121 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
     }
 
     /**
+     * 发送模型请求 (公共逻辑)
+     */
+    private async sendModelRequest(messages: any[], modelConfig: ModelConfig): Promise<any> {
+        const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+        };
+
+        if (modelConfig.apiKey) {
+            headers["Authorization"] = `Bearer ${modelConfig.apiKey}`;
+        }
+
+        const response = await axios.post(
+            modelConfig.url,
+            {
+                model: modelConfig.model,
+                messages,
+                temperature: 0.7,
+                max_tokens: -1,
+                stream: false,
+            },
+            { headers }
+        );
+
+        return response.data.choices[0].message.content
+            .replace("```json", "")
+            .replace("```", "")
+            .trim();
+    }
+
+    /**
+     * 执行规划指令
+     */
+    async executePlanningInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
+        try {
+            return await this.sendModelRequest([
+                {
+                    role: "system",
+                    content: this.modePrompts.planning(instruction)
+                },
+                {
+                    role: "user",
+                    content: instruction + "\n/no_think"
+                }
+            ], modelConfig);
+        } catch (error: any) {
+            console.error('规划模式请求失败:', error);
+            return { error: `规划模式失败: ${error.message}` };
+        }
+    }
+
+    /**
+     * 执行操作指令
+     */
+    async executeActionInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
+        try {
+            return await this.sendModelRequest([
+                {
+                    role: "system",
+                    content: this.modePrompts.action()
+                },
+                {
+                    role: "user",
+                    content: instruction + "\n/no_think"
+                }
+            ], modelConfig);
+        } catch (error: any) {
+            console.error('操作模式请求失败:', error);
+            return { error: `操作模式失败: ${error.message}` };
+        }
+    }
+
+    /**
+     * 执行审查指令
+     */
+    async executeReviewInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
+        try {
+            return await this.sendModelRequest([
+                {
+                    role: "system",
+                    content: this.modePrompts.review()
+                },
+                {
+                    role: "user",
+                    content: instruction + "\n/no_think"
+                }
+            ], modelConfig);
+        } catch (error: any) {
+            console.error('审查模式请求失败:', error);
+            return { error: `审查模式失败: ${error.message}` };
+        }
+    }
+
+    /**
+     * 执行评估指令
+     */
+    async executeEvaluationInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
+        try {
+            return await this.sendModelRequest([
+                {
+                    role: "system",
+                    content: this.modePrompts.evaluation()
+                },
+                {
+                    role: "user",
+                    content: instruction + "\n/no_think"
+                }
+            ], modelConfig);
+        } catch (error: any) {
+            console.error('评估模式请求失败:', error);
+            return { error: `评估模式失败: ${error.message}` };
+        }
+    }
+
+    /**
      * 执行模型指令（代理专用）
-     * @param instruction 指令内容
-     * @param mode 代理模式
-     * @param modelConfig 模型配置
-     * @returns 解析后的响应对象
      */
     async executeModelInstruction(
         instruction: string,
@@ -145,46 +237,18 @@ dom/query：必须包含 selector，查询结果通过 content 字段返回
         const startTime = Date.now();
 
         try {
-            // 准备请求头
-            const headers: Record<string, string> = {
-                "Content-Type": "application/json",
-            };
-
-            // 添加API Key认证
-            if (modelConfig.apiKey) {
-                headers["Authorization"] = `Bearer ${modelConfig.apiKey}`;
+            switch (mode) {
+                case 'planning':
+                    return await this.executePlanningInstruction(instruction, modelConfig);
+                case 'action':
+                    return await this.executeActionInstruction(instruction, modelConfig);
+                case 'review':
+                    return await this.executeReviewInstruction(instruction, modelConfig);
+                case 'evaluation':
+                    return await this.executeEvaluationInstruction(instruction, modelConfig);
+                default:
+                    throw new Error(`未知模式: ${mode}`);
             }
-
-            // 发送请求
-            const response = await axios.post(
-                modelConfig.url,
-                {
-                    model: modelConfig.model,
-                    messages: [
-                        {
-                            role: "system",
-                            content: this.modePrompts[mode](instruction)
-                        },
-                        {
-                            role: "user",
-                            content: instruction + "\n/no_think"
-                        }
-                    ],
-                    temperature: 0.7,
-                    max_tokens: -1,
-                    stream: false,
-                },
-                { headers }
-            );
-
-            // 处理响应
-            const aiResponse = response.data.choices[0].message.content;
-            const cleanResponse = aiResponse
-                .replace("```json", "")
-                .replace("```", "")
-                .trim();
-
-            return cleanResponse
         } catch (error: any) {
             console.error(`模型请求失败 (${mode}模式):`, error);
             return {
