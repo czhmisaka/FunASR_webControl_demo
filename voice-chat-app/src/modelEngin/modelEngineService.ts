@@ -15,15 +15,15 @@ export class ModelEngineService {
     constructor() {
         // 使用默认配置初始化
         this.modelConfig = {
-            model: "qwen3-0.6b",
-            // model: "qwen/qwen3-8b",
+            // model: "qwen3-0.6b",
+            model: "qwen/qwen3-8b",
             // model: "qwen/qwen3-14b",
             // model: "qwen3-30b-a3b",
             // model: "deepseek-chat",
-            url: "http://192.168.31.126:1234/v1/chat/completions",
-            apiKey: ''
+            // url: "http://192.168.31.126:1234/v1/chat/completions",
+            apiKey: '',
             // url: " https://api.deepseek.com/v1/chat/completions",
-            // url: "http://127.0.0.1:1234/v1/chat/completions",
+            url: "http://127.0.0.1:1234/v1/chat/completions",
 
 
 
