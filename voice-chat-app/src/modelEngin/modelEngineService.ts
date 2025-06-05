@@ -15,11 +15,20 @@ export class ModelEngineService {
     constructor() {
         // 使用默认配置初始化
         this.modelConfig = {
-            // model: "qwen3-0.6b",
-            model: "qwen/qwen3-8b",
+            model: "qwen3-0.6b",
+            // model: "qwen/qwen3-8b",
+            // model: "qwen/qwen3-14b",
+            // model: "qwen3-30b-a3b",
+            // model: "deepseek-chat",
             url: "http://192.168.31.126:1234/v1/chat/completions",
+            apiKey: ''
+            // url: " https://api.deepseek.com/v1/chat/completions",
             // url: "http://127.0.0.1:1234/v1/chat/completions",
-            apiKey: ""
+
+
+
+            // model: "GLM-4-Flash-250414",
+            // url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
         };
         this.supervisor = new Supervisor(this, this.modelConfig);
     }
@@ -160,7 +169,7 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
                 model: modelConfig.model,
                 messages,
                 temperature: 0.7,
-                max_tokens: -1,
+                // max_tokens: ,
                 stream: false,
             },
             { headers }
@@ -178,6 +187,7 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
     async executePlanningInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
         try {
             console.log('执行规划指令:', instruction, 'ads');
+            const testList = instruction.split(':::');
             return await this.sendModelRequest([
                 {
                     role: "system",
@@ -187,18 +197,23 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
                     role: 'user',
                     // 需要增加当前容器内的元素列表
                     content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
+                }, {
+                    role: "user",
+                    content: '上一步操作的评价为：【' + testList[0] + "】"
                 },
                 {
                     role: "user",
-                    content: '最终目标为：【' + instruction + "】"
+                    content: '最终目标为：【' + testList[1] + "】"
                 },
                 {
                     role: 'user',
                     content: `
                         操作指令应当是一句话，例如：
-                        1. 创建一个xx色的方块，大小为 xxx 像素，使用绝对定位，left:xxx top:xxx
-                        2. 移动方块xxx(通常是某个id选择器)向下 xxx px
+                        1. 创建一个xx色的（方块？圆角矩形？园？都可以），大小为 xxx 像素，使用绝对定位，left:xxx top:xxx，字体颜色为xxx
+                        2. 修改元素 xxx(通常是某个id选择器) 的属性，使其向下移动 xxx px
                         3. 删除xxx(通常是某个id选择器)
+                        其中，所有style参数都可以使用。
+                        你应当充分利用已有页面元素进行操作。同时避免创建过多的元素！
                     `
                 },
                 {
@@ -217,22 +232,23 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
      */
     async executeActionInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
         try {
+            const isModify = await this.judgeUserInput(instruction, '是否是修改操作');
             console.log('fuck______action', instruction)
             return await this.sendModelRequest([
                 {
                     role: "system",
                     content: this.modePrompts.action()
                 },
-                {
+                isModify ? {
                     role: 'user',
                     // 需要增加当前容器内的元素列表
                     content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
-                },
+                } : null,
                 {
                     role: "user",
                     content: instruction + "\n /no_think"
                 }
-            ], modelConfig);
+            ].filter(Boolean), modelConfig);
         } catch (error: any) {
             console.error('操作模式请求失败:', error);
             return { error: `操作模式失败: ${error.message}` };
@@ -256,8 +272,9 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
                 {
                     role: "user",
                     content: `最终目标是: ${instruction} 
-                    现在请告诉我你的评价,你的评价应当明确给出简要的信息，最好用一句话概括是否可以结束任务。
-                    /no_think`
+                    现在请仔细检查 页面元素信息 并告诉我你的评价,你的评价应当明确给出简要的信息，最好用一句话概括是否可以结束任务。
+                    /no_think
+                    `
                 }
             ], modelConfig);
         } catch (error: any) {

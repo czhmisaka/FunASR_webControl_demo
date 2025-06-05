@@ -1,7 +1,7 @@
 <!--
  * @Date: 2025-06-03 17:18:50
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-05 05:43:20
+ * @LastEditTime: 2025-06-05 07:10:20
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/components/InputController.vue
 -->
 <template>
@@ -37,7 +37,8 @@ defineOptions({
 });
 
 const inputText = ref(
-  "在页面上创建5个随机渐变色的方块，并且用绝对定位分布在不同的页面位置"
+  // "绘制一张大模型的开发架构图，要充分体现大模型开发过程的不同模块，并且限制绘制区域在 800px * 600px,绘制区域的背景色为极浅的灰色，要求美观色彩多变"
+  "绘制一幅海上生明月，要有意境 颜色柔和.月亮要有光晕。"
 );
 const isRecording = ref(false);
 

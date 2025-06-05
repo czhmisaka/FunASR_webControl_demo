@@ -118,6 +118,13 @@ export const queryElement = (container: HTMLElement): string[] => {
     return Array.from(elements).map((el: any) => {
         const attributes: Record<string, string> = {};
         for (let i = 0; i < el.attributes.length; i++) {
+            // 选择性提取定位，背景色，字体颜色等ui信息
+            if (el.attributes[i].name === 'style') {
+                const styleObj = parseStyleString(el.attributes[i].value);
+                attributes['style'] = JSON.stringify(styleObj);
+                continue;
+            }
+            // 其他属性
             const attr = el.attributes[i];
             attributes[attr.name] = attr.value || "";
         }
@@ -126,7 +133,7 @@ export const queryElement = (container: HTMLElement): string[] => {
             tag: el.tagName.toLowerCase(),
             id: el.id,
             classes: el.className,
-            attributes
+            attributes: attributes
         });
     });
 };

@@ -179,12 +179,21 @@ export class Supervisor {
 
             // 执行任务并等待结果
             const startTime = Date.now();
-            const result = await activeAgent.executeTask(
-                (currentState === 'action' ? this.actionGoal : goal) as string,
-            );
+            let result = null;
+            console.log(task, '当前状态:', currentState, '代理:', activeAgent.id);
+            if (currentState === 'action') {
+                result = await activeAgent.executeTask(this.actionGoal as any)
+            } else if (currentState === 'planning') {
+                result = await activeAgent.executeTask(this.actionGoal + ":::" + goal);
+            } else if (currentState === 'review') {
+                result = await activeAgent.executeTask(goal)
+            }
             const duration = Date.now() - startTime;
             console.log(`代理执行结果:`, result);
             if (currentState == 'planning') {
+                this.actionGoal = result?.result?.data?.result || result?.result?.data.rawResponse;
+            }
+            if (currentState == 'review') {
                 this.actionGoal = result?.result?.data?.result || result?.result?.data.rawResponse;
             }
 
