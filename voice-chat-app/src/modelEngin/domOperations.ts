@@ -169,6 +169,16 @@ export const handleInstructions = (response: string, container: HTMLElement): bo
                 deleteElement(container, instruction.payload);
                 result = true;
                 break;
+            case "dom/tool": // 新增工具调用类型
+                const toolName = instruction.payload.tool;
+                if (toolRegistry[toolName]) {
+                    const params = instruction.payload.params || [];
+                    toolRegistry[toolName].tool(...params);
+                    result = true;
+                } else {
+                    throw new Error(`未知工具: ${toolName}`);
+                }
+                break;
             default:
                 throw new Error(`未知指令类型: ${instruction.type}`);
         }
@@ -181,9 +191,32 @@ export const handleInstructions = (response: string, container: HTMLElement): bo
     }
 };
 
-// 新增基础DOM操作
-export const domBaseOperations = {
-    clickElement: (selector: string) => {
+// 工具注册表
+const toolRegistry: Record<string, any> = {};
+
+/**
+ * 注册DOM工具
+ * @param name 工具名称
+ * @param tool 工具函数
+ * @param descriptor 工具描述
+ */
+export const registerTool = (name: string, tool: any, descriptor: any) => {
+    toolRegistry[name] = {
+        tool,
+        descriptor
+    };
+};
+
+/**
+ * 获取所有注册工具的描述信息
+ */
+export const getRegisteredTools = () => {
+    return Object.values(toolRegistry).map(t => t.descriptor);
+};
+
+// 注册基础DOM工具
+registerTool('clickElement',
+    (selector: string) => {
         const el = document.querySelector(selector);
         if (el) {
             el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -191,7 +224,15 @@ export const domBaseOperations = {
         }
         throw new Error(`Element not found: ${selector}`);
     },
-    setInputValue: (selector: string, value: string) => {
+    {
+        name: 'clickElement',
+        description: '模拟点击指定选择器的元素',
+        parameters: [{ name: 'selector', type: 'string' }]
+    }
+);
+
+registerTool('setInputValue',
+    (selector: string, value: string) => {
         const input = document.querySelector(selector) as HTMLInputElement;
         if (input) {
             input.value = value;
@@ -199,5 +240,13 @@ export const domBaseOperations = {
             return `Set ${selector} value to: ${value}`;
         }
         throw new Error(`Input not found: ${selector}`);
+    },
+    {
+        name: 'setInputValue',
+        description: '设置指定输入框的值',
+        parameters: [
+            { name: 'selector', type: 'string' },
+            { name: 'value', type: 'string' }
+        ]
     }
-};
+);

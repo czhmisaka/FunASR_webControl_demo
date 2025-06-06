@@ -233,7 +233,6 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
     async executeActionInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
         try {
             const isModify = await this.judgeUserInput(instruction, '是否是修改操作');
-            console.log('fuck______action', instruction)
             return await this.sendModelRequest([
                 {
                     role: "system",

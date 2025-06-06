@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-04 09:29:09
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-05 06:01:40
+ * @LastEditTime: 2025-06-06 17:28:35
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/modelEngin/types.ts
  */
 /**
@@ -96,9 +96,16 @@ export interface InstructionPayload {
 
 // 新增指令类型
 export type DOMAction = 'clickElement' | 'setInputValue';
+export interface ToolDescriptor {
+    name: string;
+    description: string;
+    parameters: { name: string; type: string }[];
+}
+
 export interface Directive {
     action: DOMAction;
     params: any[];
+    descriptor?: ToolDescriptor;
 }
 
 // 消息类型

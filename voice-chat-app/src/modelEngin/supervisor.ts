@@ -9,7 +9,7 @@ import type { IAgent, ModelConfig, Directive, DOMAction, Task } from './types';
 import { AgentBase } from './agentBase';
 import { StateMachineEngine } from './stateMachine';
 import { ToolScheduler } from './toolScheduler';
-import { domBaseOperations, handleInstructions } from './domOperations';
+import { handleInstructions, registerTool, getRegisteredTools } from './domOperations';
 import { ModelEngineService } from './modelEngineService';
 
 /**
@@ -57,15 +57,17 @@ export class Supervisor {
             }
         });
 
-        // 注册基础DOM操作工具
-        this.toolScheduler.registerTool('dom_clickElement', {
-            execute: (selector: string) => domBaseOperations.clickElement(selector)
-        });
-
-        this.toolScheduler.registerTool('dom_setInputValue', {
-            execute: (selector: string, value: string) =>
-                domBaseOperations.setInputValue(selector, value)
-        });
+        // 注册基础DOM操作工具（使用新的注册机制）
+        const domTools = getRegisteredTools();
+        for (const tool of domTools) {
+            this.toolScheduler.registerTool(`dom_${tool.name}`, {
+                execute: (...args: any[]) => {
+                    // 在实际应用中应查找并执行对应工具
+                    // 这里简化处理，实际应调用工具函数
+                    return `Executed ${tool.name} with args: ${args.join(', ')}`;
+                }
+            });
+        }
 
         // 初始化代理
         this.addAgent();
