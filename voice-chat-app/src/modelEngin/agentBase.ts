@@ -157,7 +157,7 @@ export class AgentBase implements IAgent {
         console.log(`[代理 ${this.id}] 响应:`, parsedResponse, typeof parsedResponse);
 
         // 仅处理DOM指令
-        if (parsedResponse.type && parsedResponse.type.startsWith("dom/")) {
+        if (parsedResponse.name) {
             const container = document.getElementById('model-instructions');
             // 直接执行 dom指令
             let res = await handleInstructions(parsedResponse, container as any);

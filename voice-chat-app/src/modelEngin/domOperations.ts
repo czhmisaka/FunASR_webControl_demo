@@ -155,13 +155,13 @@ export const handleInstructions = (response: string, container: HTMLElement): bo
 
         // 验证指令基本结构
         console.log("指令", instruction);
-        if (!instruction.type) {
-            throw new Error("无效指令格式：缺少type");
+        if (!instruction.tool) {
+            throw new Error("无效指令格式：缺少tool");
         }
 
         let result = false;
-        console.log("指令类型", instruction.type, "payload", instruction);
-        switch (instruction.type) {
+        console.log("指令类型", instruction.tool, "payload", instruction);
+        switch (instruction.tool) {
             case "dom/create":
                 createElement(container, instruction);
                 result = true;

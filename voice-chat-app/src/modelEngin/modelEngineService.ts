@@ -127,23 +127,30 @@ export class ModelEngineService {
     private async getBasePowerPrompts(): Promise<string> {
         try {
             const tools = await pluginManager.getAllTools();
-            const toolList = tools.map(t => t.name).join(', ') || '无可用工具';
+            let toolList = '无可用工具';
+
+            if (tools.length > 0) {
+                toolList = tools.map(t =>
+                    `- ${t.name}: ${t.description}[type:${t.name}]\n  参数: ${t.parameters.map(p =>
+                        `${p.name}(${p.type}${p.required === false ? ', 可选' : ''})`
+                    ).join(', ')}`
+                ).join('\n');
+            }
 
             return `
-你是一个综合智能体，你具备 planning 、action 、review 三种模式。
-不同模式的简介：
-planning：根据用户输入进行任务规划，分析并生成下一步的任务指令供 action 执行。
-action：具备以下可用工具: ${toolList}。
-review：检查任务执行结果，在review模式中，你能查看到当前页面的所有元素。可以判断运行结果，若判断任务为能完成，可以通过指令输出修改建议。只需要输出下一步建议即可，不需要输出其他内容。
+你是一个综合智能体，具备 planning、action、review 三种模式：
+1. planning 模式：根据用户输入进行任务规划，生成下一步任务指令
+2. action 模式：可使用以下工具执行操作：
+${toolList}
+3. review 模式：检查任务执行结果，分析页面元素状态
 `;
         } catch (error) {
             console.error('获取工具列表失败:', error);
             return `
-你是一个综合智能体，你具备 planning 、action 、review 三种模式。
-不同模式的简介：
-planning：根据用户输入进行任务规划，分析并生成下一步的任务指令供 action 执行。
-action：工具列表获取失败，请检查插件系统。
-review：检查任务执行结果，在review模式中，你能查看到当前页面的所有元素。可以判断运行结果，若判断任务为能完成，可以通过指令输出修改建议。只需要输出下一步建议即可，不需要输出其他内容。
+你是一个综合智能体，具备 planning、action、review 三种模式：
+1. planning 模式：根据用户输入进行任务规划，生成下一步任务指令
+2. action 模式：工具列表获取失败，请检查插件系统
+3. review 模式：检查任务执行结果，分析页面元素状态
 `;
         }
     }
@@ -152,15 +159,31 @@ review：检查任务执行结果，在review模式中，你能查看到当前�
         return {
             planning: async (userinput?: string) => `
 ${await this.getBasePowerPrompts()}
-当前处于planning，模式
-当前用户的要求是：${userinput}
-            `,
+当前处于 planning 模式
+用户目标：${userinput}
+`,
             action: async () => `
 ${await this.getBasePowerPrompts()}
-当前处于 action 模式
-请使用插件系统提供的功能执行操作
-            `,
-            review: () => `当前处于 review 模式你会在审查模式中检查任务执行结果。请根据当前页面的元素状态和任务要求，判断任务是否完成。若任务没有完成，则给出下一步建议。`
+当前处于 action 模式，请严格按以下规则使用工具：
+1. 使用 JSON 格式调用工具：{
+  "type": "tool_call",
+  "tool": "工具名称",
+  "parameters": {参数键值对}
+}
+2. 示例：
+{
+  "type": "tool_call",
+  "tool": "createElement",
+  "parameters": {
+    "tagName": "div",
+    "attributes": {"id": "new-box", "class": "red-box"},
+    "textContent": "Hello World"
+  }
+}
+3. 确保参数类型和数量完全匹配
+4. 一次只能调用一个工具
+`,
+            review: () => `当前处于 review 模式，请检查任务执行结果。根据当前页面元素状态和任务要求，判断任务是否完成。若未完成，给出下一步建议。`
         };
     }
 

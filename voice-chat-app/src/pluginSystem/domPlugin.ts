@@ -51,6 +51,38 @@ export class DOMPlugin implements Plugin {
                     { name: 'selector', type: 'string' },
                     { name: 'value', type: 'string' }
                 ]
+            },
+            // 新增 DOM 操作工具
+            {
+                name: 'createElement',
+                description: '创建新元素',
+                parameters: [
+                    { name: 'tagName', type: 'string' },
+                    { name: 'attributes', type: 'object' },
+                    { name: 'textContent', type: 'string', required: false },
+                    { name: 'parentSelector', type: 'string', required: false }
+                ]
+            },
+            {
+                name: 'modifyElement',
+                description: '修改元素属性',
+                parameters: [
+                    { name: 'selector', type: 'string' },
+                    { name: 'attributes', type: 'object' },
+                    { name: 'textContent', type: 'string', required: false }
+                ]
+            },
+            {
+                name: 'deleteElement',
+                description: '删除元素',
+                parameters: [
+                    { name: 'selector', type: 'string' }
+                ]
+            },
+            {
+                name: 'queryElements',
+                description: '查询页面元素',
+                parameters: []
             }
         ];
     }
