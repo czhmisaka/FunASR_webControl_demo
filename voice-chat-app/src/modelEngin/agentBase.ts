@@ -17,6 +17,7 @@ export class AgentBase implements IAgent {
     public currentMode: SystemMode = SystemMode.PLANNING;
     public modeHistory: ModeTransition[] = [];
     public lastEvaluationResult: any = null; // 存储最近一次评估结果
+    private isActive = true; // 代理活动状态标志
 
     constructor(
         private modelService: ModelEngineService, // ✅ 通过依赖注入
@@ -197,6 +198,13 @@ export class AgentBase implements IAgent {
             issues: response.issues || [],
             rawResponse: response
         };
+    }
+
+    /**
+     * 终止代理执行
+     */
+    public terminate() {
+        this.isActive = false;
     }
 
 }

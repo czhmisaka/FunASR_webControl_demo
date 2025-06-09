@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-04 09:29:09
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-06 17:28:35
+ * @LastEditTime: 2025-06-09 12:35:30
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/modelEngin/types.ts
  */
 /**
@@ -87,11 +87,13 @@ export interface AgentCapabilities {
 
 // 指令负载类型
 export interface InstructionPayload {
-    tag?: string;
+    tagName?: string;
     selector?: string;
-    attrs?: Record<string, string | number | boolean>;
-    content?: string;
-    modifications?: Record<string, any>;
+    attributes?: Record<string, string | number | boolean>;
+    textContent?: string;
+    target?: string; // 目标元素的选择器或ID
+    style?: { [key: string]: any }
+
 }
 
 // 新增指令类型
@@ -174,12 +176,17 @@ export interface ModelEngineService {
     judgeUserInput(
         input: string,
         requirement: string
-    ): Promise<ModeDecision>;
+    ): Promise<boolean>; // 修改为返回 boolean
     executeModelInstruction(
         instruction: string,
         mode: 'planning' | 'action' | 'review' | 'evaluation',
         modelConfig: ModelConfig
     ): Promise<any>;
+    getModelConfig(): ModelConfig;
+    pushAgentMessage(text: string, type: MessageType, meta?: any): void;
+    getAgentMessages(): Message[];
+    registerTool(name: string, config: { description: string; parameters?: object; handler: (args: any) => Promise<any>; }): void;
+    updateModelConfig(config: ModelConfig): void;
 }
 
 // 代理接口
@@ -188,5 +195,6 @@ export interface IAgent {
     currentMode: SystemMode;
     modeHistory: ModeTransition[];
     transitionMode(newMode: SystemMode, reason: string): void;
-    executeTask(task: string): Promise<any>;
+    executeTask(task: string): Promise<UnifiedAgentResponse>;
+    terminate(): void;
 }

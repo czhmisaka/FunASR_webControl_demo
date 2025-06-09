@@ -45,6 +45,7 @@ export class ToolScheduler {
     private tools: Record<string, any> = {};
     private securityPolicy: any;
     private taskQueue = new TaskQueue();
+    private activeTasks: Map<string, AbortController> = new Map();
 
     constructor() {
         this.securityPolicy = {
@@ -52,6 +53,22 @@ export class ToolScheduler {
             sanitizeParams: (toolId: string, params: any) => ({ valid: true, params }),
             getResourceLimit: (toolId: string) => ({ cpu: 90, memory: 80 })
         };
+    }
+
+    terminateAll() {
+        this.activeTasks.forEach(ctrl => ctrl.abort());
+        this.activeTasks.clear();
+    }
+
+    /**
+     * 停止任务队列处理
+     */
+    stopProcessing() {
+        // 终止所有活动任务
+        this.terminateAll();
+
+        // 重置任务队列
+        this.taskQueue = new TaskQueue();
     }
 
     registerTool(toolId: string, toolInstance: any): void {
@@ -62,7 +79,7 @@ export class ToolScheduler {
     }
 
     getTasks(): Array<TaskDefinition> {
-        return this.taskQueue;
+        return this.taskQueue.queue;
     }
 
     getTool(toolId: string): any {
@@ -92,7 +109,6 @@ export class ToolScheduler {
      * 内部执行逻辑
      */
     private async _executeTool(toolId: string, params: any, agentId: string): Promise<ToolExecutionResult> {
-        // [保持原有执行逻辑不变]
         // 记录工具调用开始时间
         const startTime = Date.now();
 
@@ -120,13 +136,21 @@ export class ToolScheduler {
             return { status: 'error', message: `工具 ${toolId} 不存在` };
         }
 
+        // 创建AbortController用于任务终止
+        const controller = new AbortController();
+        const taskId = uuidv4();
+        this.activeTasks.set(taskId, controller);
+
         try {
             // 记录工具调用日志
             this.logToolInvocation(toolId, agentId, sanitized.params);
 
-            // 执行工具（带超时控制）
+            // 执行工具（带超时控制和中止支持）
             const timeout = resourceLimit.timeout || 60000;
-            const rawResult = await this.executeWithTimeout(tool.execute(sanitized.params), timeout);
+            const rawResult = await this.executeWithTimeout(
+                tool.execute({ ...sanitized.params, signal: controller.signal }),
+                timeout
+            );
             console.log(`工具原始执行结果:`, rawResult);
 
             // 将结果包装为 ToolExecutionResult 格式
@@ -136,13 +160,20 @@ export class ToolScheduler {
                 message: '工具执行成功'
             };
         } catch (error: any) {
+            let message = `工具执行失败: ${error.message}`;
+            if (error.name === 'AbortError') {
+                message = '任务已被用户终止';
+            }
+
             // 使用大模型分析错误
             const suggestion = await this.analyzeError(error);
             return {
                 status: 'error',
-                message: `工具执行失败: ${error.message}`,
+                message,
                 suggestion: suggestion
             };
+        } finally {
+            this.activeTasks.delete(taskId);
         }
     }
 

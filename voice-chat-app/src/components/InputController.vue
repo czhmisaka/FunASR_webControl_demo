@@ -1,7 +1,7 @@
 <!--
  * @Date: 2025-06-03 17:18:50
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-05 07:10:20
+ * @LastEditTime: 2025-06-09 10:14:59
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/components/InputController.vue
 -->
 <template>
@@ -26,6 +26,13 @@
     >
       {{ isRecording ? "🛑" : "🎤" }}
     </el-button>
+    <!-- 停止任务按钮 -->
+    <el-button
+      type="danger"
+      @click="terminateTask"
+      class="stop-btn"
+      icon="el-icon-switch-button"
+    />
   </div>
 </template>
 
@@ -42,7 +49,12 @@ const inputText = ref(
 );
 const isRecording = ref(false);
 
-const emit = defineEmits(["send", "start-recording", "open-config"]);
+const emit = defineEmits([
+  "send",
+  "start-recording",
+  "open-config",
+  "terminate-task",
+]);
 
 const sendMessage = () => {
   if (!inputText.value.trim()) return;
@@ -56,6 +68,10 @@ const startSpeechRecognition = () => {
 
 const openConfigDialog = () => {
   emit("open-config");
+};
+
+const terminateTask = () => {
+  emit("terminate-task");
 };
 </script>
 
@@ -83,5 +99,17 @@ export default {};
 .voice-btn {
   width: auto;
   padding: 0 15px;
+  margin-right: 10px;
+}
+
+.stop-btn {
+  background-color: #ff4d4f;
+  border-color: #ff4d4f;
+  color: white;
+}
+
+.stop-btn:hover {
+  background-color: #ff7875;
+  border-color: #ff7875;
 }
 </style>

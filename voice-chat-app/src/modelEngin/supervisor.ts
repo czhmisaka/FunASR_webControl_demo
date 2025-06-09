@@ -215,9 +215,6 @@ export class Supervisor {
 
             // 更新代理模式以匹配状态机
             activeAgent.transitionMode(nextState, '状态机决策更新');
-
-            // 添加延迟避免CPU过载
-            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
         if (this.stateMachine.isComplete()) {
@@ -247,5 +244,15 @@ export class Supervisor {
     stopAll(): void {
         this.isRunning = false;
         this.agents = [];
+    }
+
+    /**
+     * 终止任务执行
+     */
+    public terminate() {
+        this.isRunning = false;
+        this.agents.forEach(agent => agent.terminate());
+        this.toolScheduler.stopProcessing();
+        console.log('[Supervisor] 任务已强制终止');
     }
 }

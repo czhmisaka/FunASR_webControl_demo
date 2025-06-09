@@ -314,6 +314,15 @@ const handleManualSend = (e: string) => {
   inputText.value = "";
 };
 
+const handleTerminateTask = () => {
+  modelEngineService.terminateTask();
+  messages.value.push({
+    text: "已强制终止所有任务",
+    type: "info",
+  });
+};
+handleTerminateTask; // 避免未使用的变量警告
+
 // 开始语音识别
 const startSpeechRecognition = async () => {
   if (isRecording.value) {

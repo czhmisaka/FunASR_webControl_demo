@@ -3,6 +3,8 @@ import type { ModelConfig, Message, MessageType } from "./types";
 import { Supervisor } from './supervisor';
 import { queryElement } from "./domOperations";
 import { roleTypes } from "element-plus";
+import { ToolScheduler } from "./toolScheduler";
+import { StateMachineEngine } from "./stateMachine";
 
 /**
  * 模型引擎服务类
@@ -11,6 +13,8 @@ export class ModelEngineService {
     public readonly supervisor: Supervisor;
     private modelConfig: ModelConfig;
     private agentMessages: Message[] = []; // 存储代理消息
+    private toolScheduler: ToolScheduler;
+    private stateMachine: StateMachineEngine;
 
     constructor() {
         // 使用默认配置初始化
@@ -20,6 +24,8 @@ export class ModelEngineService {
             url: "http://127.0.0.1:1234/v1/chat/completions",
         };
         this.supervisor = new Supervisor(this, this.modelConfig);
+        this.toolScheduler = new ToolScheduler();
+        this.stateMachine = new StateMachineEngine(this, this.modelConfig);
 
         // 注册示例工具
         this.registerTool('calculator', {
@@ -43,6 +49,21 @@ export class ModelEngineService {
                 }
             }
         });
+    }
+
+    /**
+     * 终止所有任务
+     */
+    public terminateTask() {
+        // 终止所有进行中的任务
+        this.toolScheduler.terminateAll();
+        // 终止监督器任务循环
+        this.supervisor.terminate();
+
+        // 更新状态机到终止状态
+        this.stateMachine.setNextState('terminated', '用户强制终止任务');
+
+        console.log('所有任务已被强制终止');
     }
 
     /**
@@ -112,13 +133,6 @@ export class ModelEngineService {
         return [...this.agentMessages];
     }
 
-    private readonly basePowerPrompts = `
-你是一个综合智能体，你具备 planning 、action 、review 三种模式。
-不同模式的简介：
-planning：根据用户输入进行任务规划，分析并生成下一步的任务指令供 action 执行。
-action：执行单一的 元素生成、元素编辑、元素删除的指令。
-review：检查任务执行结果，在review模式中，你能查看到当前页面的所有元素。可以判断运行结果，若判断任务为能完成，可以通过指令输出修改建议。只需要输出下一步建议即可，不需要输出其他内容。
-`
 
     // 模式专用提示词
     private toolRegistry: Record<string, {
@@ -126,6 +140,16 @@ review：检查任务执行结果，在review模式中，你能查看到当前�
         parameters?: object;
         handler: (args: any) => Promise<any>;
     }> = {};
+
+    private readonly basePowerPrompts = `
+你是一个综合智能体，你具备 planning 、action 、review 三种模式。
+不同模式的简介：
+planning：根据用户输入进行任务规划，分析并生成下一步的任务指令供 action 执行。
+action：具备如下能力<${Object.keys(this.toolRegistry).join(', ')
+        }>。
+review：检查任务执行结果，在review模式中，你能查看到当前页面的所有元素。可以判断运行结果，若判断任务为能完成，可以通过指令输出修改建议。只需要输出下一步建议即可，不需要输出其他内容。
+`
+
 
     /**
      * 注册新工具
@@ -154,12 +178,9 @@ review：检查任务执行结果，在review模式中，你能查看到当前�
         
         请严格按照以下 JSON 格式输出操作指令：
         {
-          "type": "操作类型", // 可选值：dom/create, dom/modify, dom/delete, tool_call
+          "type": "操作类型", // 可选值：${this.toolRegistry}}
           ... // 根据类型变化的字段
         }
-        
-        ## DOM 操作规范：
-        ... [原有 DOM 操作规范保持不变] ...
         `;
 
         // 添加工具调用说明
@@ -258,6 +279,7 @@ ${this.basePowerPrompts}
         if (modelConfig.apiKey) {
             headers["Authorization"] = `Bearer ${modelConfig.apiKey}`;
         }
+        console.log('调用大模型 - 模型发送信息', `${messages.map(x => x.content).join('\n')}`)
 
         const response = await axios.post(
             modelConfig.url,
@@ -269,7 +291,9 @@ ${this.basePowerPrompts}
             },
             { headers }
         );
-
+        console.log('调用大模型 - 模型响应', response.data.choices[0].message.content.replace("```json", "")
+            .replace("```", "")
+            .trim());
         return response.data.choices[0].message.content
             .replace("```json", "")
             .replace("```", "")
@@ -441,36 +465,36 @@ async function testToolCalls() {
         "获取天气预报"
     );
 
-    // 模拟工具调用指令
-    const toolCallCommand = JSON.stringify({
-        type: "tool_call",
-        tool: "mcp:weather-server/get_forecast",
-        parameters: { city: "北京", days: 3 }
-    });
+    // // 模拟工具调用指令
+    // const toolCallCommand = JSON.stringify({
+    //     type: "tool_call",
+    //     tool: "mcp:weather-server/get_forecast",
+    //     parameters: { city: "北京", days: 3 }
+    // });
 
-    // 执行工具调用
-    console.log("测试工具调用...");
-    const result = await modelEngineService.executeActionInstruction(
-        toolCallCommand,
-        modelEngineService.getModelConfig()
-    );
+    // // 执行工具调用
+    // console.log("测试工具调用...");
+    // const result = await modelEngineService.executeActionInstruction(
+    //     toolCallCommand,
+    //     modelEngineService.getModelConfig()
+    // );
 
-    console.log("工具调用结果:", result);
+    // console.log("工具调用结果:", result);
 
-    // 测试计算器工具
-    const calculatorCall = JSON.stringify({
-        type: "tool_call",
-        tool: "calculator",
-        parameters: { expression: "2 + 3 * 4" }
-    });
+    // // 测试计算器工具
+    // const calculatorCall = JSON.stringify({
+    //     type: "tool_call",
+    //     tool: "calculator",
+    //     parameters: { expression: "2 + 3 * 4" }
+    // });
 
-    console.log("测试计算器工具...");
-    const calcResult = await modelEngineService.executeActionInstruction(
-        calculatorCall,
-        modelEngineService.getModelConfig()
-    );
+    // console.log("测试计算器工具...");
+    // const calcResult = await modelEngineService.executeActionInstruction(
+    //     calculatorCall,
+    //     modelEngineService.getModelConfig()
+    // );
 
-    console.log("计算器结果:", calcResult);
+    // console.log("计算器结果:", calcResult);
 }
 
 // 执行测试

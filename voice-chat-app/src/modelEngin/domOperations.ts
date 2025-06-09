@@ -21,15 +21,15 @@ export const parseStyleString = (styleStr: string): Record<string, string> => {
  */
 export const createElement = (container: HTMLElement, payload: InstructionPayload) => {
     console.log("创建元素", payload);
-    if (!payload.tag) {
-        throw new Error("创建元素缺少必要参数: tag");
+    if (!payload.tagName) {
+        throw new Error("创建元素缺少必要参数: tagName");
     }
 
-    const element = document.createElement(payload.tag);
+    const element = document.createElement(payload.tagName);
 
     // 设置属性
-    if (payload.attrs) {
-        for (const [key, value] of Object.entries(payload.attrs)) {
+    if (payload.attributes) {
+        for (const [key, value] of Object.entries(payload.attributes)) {
             element.setAttribute(key, value as string);
         }
     }
@@ -40,8 +40,8 @@ export const createElement = (container: HTMLElement, payload: InstructionPayloa
     }
 
     // 设置内容
-    if (payload.content) {
-        element.innerHTML = payload.content;
+    if (payload.textContent) {
+        element.innerHTML = payload.textContent;
     }
 
     container.appendChild(element);
@@ -53,15 +53,19 @@ export const createElement = (container: HTMLElement, payload: InstructionPayloa
  * @param payload 修改指令负载
  */
 export const modifyElement = (container: HTMLElement, payload: InstructionPayload) => {
-    if (!payload.selector || !payload.modifications) {
-        throw new Error("修改元素缺少必要参数: selector或modifications");
+    if (!payload.target) {
+        throw new Error("修改元素缺少必要参数: target");
     }
 
-    const element = container.querySelector(payload.selector);
+    const element = container.querySelector(payload.target);
     if (!element) throw new Error(`找不到元素: ${payload.selector}`);
 
     // 应用修改
-    for (const [key, value] of Object.entries(payload.modifications)) {
+    for (const [key, value] of Object.entries(payload)) {
+        if (['target', 'tagName'].indexOf(key) > -1) {
+            // 忽略不需要处理的键
+            continue;
+        }
         if (key === "class") {
             // 确保元素是HTMLElement
             if (element instanceof HTMLElement) {
@@ -150,23 +154,24 @@ export const handleInstructions = (response: string, container: HTMLElement): bo
         const instruction = typeof response == 'string' ? JSON.parse(response) : response
 
         // 验证指令基本结构
-        if (!instruction.type || !instruction.payload) {
-            throw new Error("无效指令格式：缺少type或payload");
+        console.log("指令", instruction);
+        if (!instruction.type) {
+            throw new Error("无效指令格式：缺少type");
         }
 
         let result = false;
-        console.log("指令类型", instruction.type, "payload", instruction.payload);
+        console.log("指令类型", instruction.type, "payload", instruction);
         switch (instruction.type) {
             case "dom/create":
-                createElement(container, instruction.payload);
+                createElement(container, instruction);
                 result = true;
                 break;
             case "dom/modify":
-                modifyElement(container, instruction.payload);
+                modifyElement(container, instruction);
                 result = true;
                 break;
             case "dom/delete":
-                deleteElement(container, instruction.payload);
+                deleteElement(container, instruction);
                 result = true;
                 break;
             case "dom/tool": // 新增工具调用类型

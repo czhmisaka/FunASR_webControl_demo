@@ -74,8 +74,8 @@ export class StateMachineEngine implements StateMachine {
         return this.setNextState(decision.next_state, `模型决策: ${decision.reason}`);
     }
 
-    private setNextState(next_state: string, reason: string): string {
-        const validStates = ['planning', 'action', 'review', 'complete']; // 移除evaluation
+    public setNextState(next_state: string, reason: string): string {
+        const validStates = ['planning', 'action', 'review', 'complete', 'terminating', 'terminated']; // 添加终止状态
         if (!validStates.includes(next_state)) {
             next_state = 'planning';
             reason = `无效状态自动回退: ${reason}`;
