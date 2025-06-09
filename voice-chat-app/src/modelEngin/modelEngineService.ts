@@ -15,22 +15,76 @@ export class ModelEngineService {
     constructor() {
         // 使用默认配置初始化
         this.modelConfig = {
-            // model: "qwen3-0.6b",
             model: "qwen/qwen3-8b",
-            // model: "qwen/qwen3-14b",
-            // model: "qwen3-30b-a3b",
-            // model: "deepseek-chat",
-            // url: "http://192.168.31.126:1234/v1/chat/completions",
             apiKey: '',
-            // url: " https://api.deepseek.com/v1/chat/completions",
             url: "http://127.0.0.1:1234/v1/chat/completions",
-
-
-
-            // model: "GLM-4-Flash-250414",
-            // url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
         };
         this.supervisor = new Supervisor(this, this.modelConfig);
+
+        // 注册示例工具
+        this.registerTool('calculator', {
+            description: '执行数学计算',
+            parameters: {
+                expression: '数学表达式，例如：1+2'
+            },
+            handler: async ({ expression }) => {
+                try {
+                    // 安全评估数学表达式
+                    const safeEval = (expr: string) => {
+                        return Function(`'use strict'; return (${expr})`)();
+                    };
+                    return safeEval(expression);
+                } catch (error) {
+                    if (error instanceof Error) {
+                        return `计算错误: ${error.message}`;
+                    } else {
+                        return `计算错误: 未知错误`;
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * MCP 工具适配器
+     */
+    static MCPAdapter = class {
+        /**
+         * 注册 MCP 工具
+         * @param serverName MCP 服务器名称
+         * @param toolName 工具名称
+         * @param description 工具描述
+         */
+        static registerMCPTool(
+            serverName: string,
+            toolName: string,
+            description: string
+        ) {
+            modelEngineService.registerTool(`mcp:${serverName}/${toolName}`, {
+                description: `MCP工具: ${description}`,
+                parameters: { type: "object" },
+                handler: async (params: any) => {
+                    return await this.executeMCPCommand(serverName, toolName, params);
+                }
+            });
+        }
+
+        /**
+         * 执行 MCP 命令
+         */
+        private static async executeMCPCommand(server: string, tool: string, args: object) {
+            try {
+                // 这里实际会调用 MCP 服务
+                console.log(`[MCP调用] ${server}/${tool}`, args);
+                return { success: true, data: "MCP调用结果占位符" };
+            } catch (error: any) {
+                return {
+                    success: false,
+                    error: `MCP调用失败: ${error.message}`,
+                    details: error.response?.data
+                };
+            }
+        }
     }
 
     /**
@@ -67,43 +121,78 @@ review：检查任务执行结果，在review模式中，你能查看到当前�
 `
 
     // 模式专用提示词
+    private toolRegistry: Record<string, {
+        description: string;
+        parameters?: object;
+        handler: (args: any) => Promise<any>;
+    }> = {};
+
+    /**
+     * 注册新工具
+     * @param name 工具名称
+     * @param config 工具配置
+     */
+    public registerTool(name: string, config: {
+        description: string;
+        parameters?: object;
+        handler: (args: any) => Promise<any>;
+    }) {
+        this.toolRegistry[name] = config;
+        console.log(`[工具注册] ${name}: ${config.description}`);
+    }
+
+    /**
+     * 获取动态动作提示词
+     */
+    private getDynamicActionPrompt(): string {
+        let toolSection = '';
+
+        // 添加 DOM 操作说明
+        const basePrompt = `
+        ${this.basePowerPrompts}
+        当前处于 action 模式
+        
+        请严格按照以下 JSON 格式输出操作指令：
+        {
+          "type": "操作类型", // 可选值：dom/create, dom/modify, dom/delete, tool_call
+          ... // 根据类型变化的字段
+        }
+        
+        ## DOM 操作规范：
+        ... [原有 DOM 操作规范保持不变] ...
+        `;
+
+        // 添加工具调用说明
+        if (Object.keys(this.toolRegistry).length > 0) {
+            toolSection += '\n\n## 可用工具：\n';
+            Object.entries(this.toolRegistry).forEach(([name, tool]) => {
+                toolSection += `- **${name}**: ${tool.description}\n`;
+                if (tool.parameters) {
+                    toolSection += `  参数格式: ${JSON.stringify(tool.parameters)}\n`;
+                }
+            });
+
+            toolSection += `
+            \n## 工具调用格式：
+            {
+              "type": "tool_call",
+              "tool": "工具名称",
+              "parameters": {
+                // 工具特定参数
+              }
+            }`;
+        }
+
+        return basePrompt + toolSection;
+    }
+
     private readonly modePrompts = {
         planning: (userinput?: string) => `
 ${this.basePowerPrompts}
 当前处于planning，模式
 当前用户的要求是：${userinput}
         `,
-        action: () => `
-        ${this.basePowerPrompts}
-        当前处于 action 模式
-
-请严格按照以下 JSON 格式输出操作指令，确保语法正确且字段完整：
-{
-"type": "操作类型", // 可选值：dom/create（创建元素）、dom/modify（修改元素）、dom/delete（删除元素）
-"payload": {
-"tag": "元素标签名", // 例如 div、span、button，create 类型必填
-"attrs": {"属性名": "属性值", ...}, // 元素属性，无属性时留空对象 {} 推荐使用 style 作为主要修改属性
-"content": "元素内容", // 文本内容或 HTML 片段，create 类型必填，query 类型用于返回结果
-"selector": "选择器", // 用于 modify/delete/query 类型，格式如.class、#id、element 标签名
-"modifications": {"属性修改": "新值", ...} //modify 类型必填，指定需要修改的属性及值
-}
-}
-
-注意事项：
-用原始json格式输出，不要使用markdown标签包裹
-所有元素应当默认使用绝对定位,默认使用top和 left处理定位，例如 top:0px; left: 0px;你可以使用dom/modify 修改元素定位来移动元素
-type 字段必须从可选值中选择，严禁自定义（如错误写成 "dom-create"）
-payload 字段必填规则：
-dom/create：必须包含 tag、content，attrs 可选（如 {style: "color: red"}） 其中当你想删除某个属性，则需要把这属性的对应值改为none,所有的样式或定位都应该在style里明确输出
-dom/modify：必须包含 selector、modifications（如 {textContent: "新文本"}）
-dom/delete：必须包含 selector（如 #footer 或 div.container）
-
-严格遵循 JSON 语法规范：
-所有字符串使用双引号包裹（如 "div" 而非 'div'）
-键名必须与示例完全一致（如 modifications 而非 modification）
-禁止出现注释、多余逗号或非 JSON 格式内容
-选择器规范：
-确保选择器唯一性（避免修改 / 删除多个元素时出错）`,
+        action: () => this.getDynamicActionPrompt(),
         review: () => `当前处于 review 模式你会在审查模式中检查任务执行结果。请根据当前页面的元素状态和任务要求，判断任务是否完成。若任务没有完成，则给出下一步建议。`
     };
 
@@ -152,6 +241,13 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
     }
 
     /**
+     * 获取当前模型配置
+     */
+    public getModelConfig(): ModelConfig {
+        return this.modelConfig;
+    }
+
+    /**
      * 发送模型请求 (公共逻辑)
      */
     private async sendModelRequest(messages: any[], modelConfig: ModelConfig): Promise<any> {
@@ -169,7 +265,6 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
                 model: modelConfig.model,
                 messages,
                 temperature: 0.7,
-                // max_tokens: ,
                 stream: false,
             },
             { headers }
@@ -195,7 +290,6 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
                 },
                 {
                     role: 'user',
-                    // 需要增加当前容器内的元素列表
                     content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
                 }, {
                     role: "user",
@@ -233,14 +327,13 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
     async executeActionInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
         try {
             const isModify = await this.judgeUserInput(instruction, '是否是修改操作');
-            return await this.sendModelRequest([
+            const response = await this.sendModelRequest([
                 {
                     role: "system",
                     content: this.modePrompts.action()
                 },
                 isModify ? {
                     role: 'user',
-                    // 需要增加当前容器内的元素列表
                     content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
                 } : null,
                 {
@@ -248,6 +341,28 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
                     content: instruction + "\n /no_think"
                 }
             ].filter(Boolean), modelConfig);
+
+            // 尝试解析为工具调用指令
+            try {
+                const command = JSON.parse(response);
+                if (command.type === 'tool_call') {
+                    const tool = this.toolRegistry[command.tool];
+                    if (!tool) {
+                        throw new Error(`未注册的工具: ${command.tool}`);
+                    }
+                    console.log(`[工具调用] ${command.tool}`, command.parameters);
+                    const result = await tool.handler(command.parameters);
+                    return {
+                        tool: command.tool,
+                        result
+                    };
+                }
+            } catch (e) {
+                // 不是有效的工具调用指令，按原样返回
+                console.log('返回指令不是工具调用，按原指令处理', response);
+            }
+
+            return response;
         } catch (error: any) {
             console.error('操作模式请求失败:', error);
             return { error: `操作模式失败: ${error.message}` };
@@ -265,7 +380,6 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
                     content: this.modePrompts.review()
                 }, {
                     role: 'user',
-                    // 需要增加当前容器内的元素列表
                     content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
                 },
                 {
@@ -313,7 +427,51 @@ dom/delete：必须包含 selector（如 #footer 或 div.container）
     }
 }
 
-
-
 // 导出全局服务实例
 export const modelEngineService = new ModelEngineService();
+
+/**
+ * 测试工具调用功能
+ */
+async function testToolCalls() {
+    // 注册MCP工具
+    ModelEngineService.MCPAdapter.registerMCPTool(
+        "weather-server",
+        "get_forecast",
+        "获取天气预报"
+    );
+
+    // 模拟工具调用指令
+    const toolCallCommand = JSON.stringify({
+        type: "tool_call",
+        tool: "mcp:weather-server/get_forecast",
+        parameters: { city: "北京", days: 3 }
+    });
+
+    // 执行工具调用
+    console.log("测试工具调用...");
+    const result = await modelEngineService.executeActionInstruction(
+        toolCallCommand,
+        modelEngineService.getModelConfig()
+    );
+
+    console.log("工具调用结果:", result);
+
+    // 测试计算器工具
+    const calculatorCall = JSON.stringify({
+        type: "tool_call",
+        tool: "calculator",
+        parameters: { expression: "2 + 3 * 4" }
+    });
+
+    console.log("测试计算器工具...");
+    const calcResult = await modelEngineService.executeActionInstruction(
+        calculatorCall,
+        modelEngineService.getModelConfig()
+    );
+
+    console.log("计算器结果:", calcResult);
+}
+
+// 执行测试
+testToolCalls();

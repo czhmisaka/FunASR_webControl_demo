@@ -164,7 +164,7 @@ export class AgentBase implements IAgent {
             if (!container || !res) {
                 return {
                     executed: false,
-                    result: "执行失败",
+                    result: "执行失败" + parsedResponse,
                     rawResponse: parsedResponse
                 };
             } else {
@@ -175,29 +175,6 @@ export class AgentBase implements IAgent {
                 }
             }
 
-            // // 创建任务对象
-            // const taskDefinition: TaskDefinition = {
-            //     id: `dom-task-${Date.now()}`,
-            //     priority: 'medium',
-            //     retryCount: 0,
-            //     execute: async () => {
-            //         console.log(`[代理 ${this.id}] 执行DOM指令:`, parsedResponse);
-            //         return await this.toolScheduler.executeTool("dom", {
-            //             instruction: JSON.stringify(parsedResponse),
-            //             container: container
-            //         }, this.id);
-            //     }
-            // };
-
-            // // 将任务加入队列
-            // this.toolScheduler.addTask(taskDefinition);
-            // console.log(`[代理 ${this.id}] 任务已加入队列: ${taskDefinition.id}`);
-
-            // return {
-            //     executed: true, // 标记为已加入队列
-            //     result: `任务已排队: ${taskDefinition.id}，当前任务队列：`,
-            //     rawResponse: parsedResponse
-            // };
         }
 
         return {
