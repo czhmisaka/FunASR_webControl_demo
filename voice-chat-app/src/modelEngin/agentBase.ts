@@ -7,7 +7,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { SystemMode } from './types';
 import type { IAgent, ModeTransition, ModelConfig, ModelEngineService, UnifiedAgentResponse, ToolExecutionResult, TaskDefinition } from './types';
 import { ToolScheduler } from './toolScheduler';
-import { handleInstructions } from './domOperations';
+import { domPlugin } from '../pluginSystem/domPlugin';
+import type { PluginInstruction } from '../pluginSystem/types';
+import { DOMOperation } from '../pluginSystem/types';
 
 /**
  * 代理基础类
@@ -65,7 +67,7 @@ export class AgentBase implements IAgent {
         let status: 'success' | 'partial' | 'error' = 'success';
         let data: any;
         let nextActions: string[] = [];
-
+        console.log(`[代理 ${this.id}] 执行任务: ${task}`)
         switch (this.currentMode) {
             case SystemMode.PLANNING:
                 result = await this.handlePlanning(task);
@@ -154,34 +156,58 @@ export class AgentBase implements IAgent {
             this.modelConfig
         );
         const parsedResponse = JSON.parse(response);
-        console.log(`[代理 ${this.id}] 响应:`, parsedResponse, typeof parsedResponse);
+        console.log(`[代理 ${this.id}] action响应:`, parsedResponse, typeof parsedResponse);
 
         // 仅处理DOM指令
-        if (parsedResponse.name) {
+        if (parsedResponse.tool) {
             const container = document.getElementById('model-instructions');
-            // 直接执行 dom指令
-            let res = await handleInstructions(parsedResponse, container as any);
-            console.log(`[代理 ${this.id}] dom响应:`, res, typeof res);
-            if (!container || !res) {
-                return {
-                    executed: false,
-                    result: "执行失败" + parsedResponse,
-                    rawResponse: parsedResponse
-                };
-            } else {
+            try {
+                // 将指令映射为插件格式
+                const instruction = this.mapToDOMOperation(parsedResponse);
+                // 通过插件执行DOM操作
+                const result = await domPlugin.execute(instruction);
                 return {
                     executed: true,
                     result: "DOM指令已执行",
-                    rawResponse: res
-                }
+                    rawResponse: result
+                };
+            } catch (e: any) {
+                console.error(`[代理 ${this.id}] DOM指令执行失败:`, e);
+                return {
+                    executed: false,
+                    result: `执行失败: ${e.message}`,
+                    rawResponse: parsedResponse
+                };
             }
-
         }
 
         return {
             executed: false,
-            result: `不支持指令类型: ${parsedResponse.type || '未定义'}`,
+            result: `不支持指令类型: ${parsedResponse.tool || '未定义'}`,
             rawResponse: parsedResponse
+        };
+    }
+
+    /**
+     * 将原始指令映射为DOM插件指令格式
+     * @param instruction 原始指令
+     * @returns 映射后的插件指令
+     */
+    private mapToDOMOperation(instruction: any): PluginInstruction {
+        const operationMap: Record<string, DOMOperation> = {
+            'dom/create': DOMOperation.CREATE,
+            'dom/modify': DOMOperation.MODIFY,
+            'dom/delete': DOMOperation.DELETE,
+            'dom/query': DOMOperation.QUERY
+        };
+
+        if (!operationMap[instruction.name]) {
+            throw new Error(`不支持的DOM操作类型: ${instruction.name}`);
+        }
+
+        return {
+            type: operationMap[instruction.name],
+            payload: instruction.payload
         };
     }
 

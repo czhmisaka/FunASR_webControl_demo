@@ -35,7 +35,8 @@ export class ModelEngineService {
         this.modelConfig = {
             model: "qwen/qwen3-8b",
             apiKey: '',
-            url: "http://127.0.0.1:1234/v1/chat/completions",
+            // url: "http://127.0.0.1:1234/v1/chat/completions",
+            url: "http://192.168.31.122/v1/chat/completions",
         };
         this.supervisor = new Supervisor(this, this.modelConfig);
         this.stateMachine = new StateMachineEngine(this, this.modelConfig);
@@ -166,13 +167,11 @@ ${await this.getBasePowerPrompts()}
 ${await this.getBasePowerPrompts()}
 当前处于 action 模式，请严格按以下规则使用工具：
 1. 使用 JSON 格式调用工具：{
-  "type": "tool_call",
-  "tool": "工具名称",
+  "tool": "{工具名称}",
   "parameters": {参数键值对}
 }
 2. 示例：
 {
-  "type": "tool_call",
   "tool": "createElement",
   "parameters": {
     "tagName": "div",
