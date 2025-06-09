@@ -1,10 +1,25 @@
 import axios from "axios";
 import type { ModelConfig, Message, MessageType } from "./types";
 import { Supervisor } from './supervisor';
-import { queryElement } from "./domOperations";
-import { roleTypes } from "element-plus";
-import { ToolScheduler } from "./toolScheduler";
 import { StateMachineEngine } from "./stateMachine";
+import { pluginManager } from "../pluginSystem/pluginManager";
+import { domPlugin } from "../pluginSystem/domPlugin";
+import { toolPlugin } from "../pluginSystem/toolPlugin";
+
+// 初始化插件系统
+async function initPluginSystem() {
+    // 注册核心插件
+    pluginManager.registerPlugin(domPlugin);
+    pluginManager.registerPlugin(toolPlugin);
+
+    // 初始化插件
+    await pluginManager.initPlugins();
+
+    console.log('插件系统初始化完成');
+}
+
+// 立即初始化插件系统
+initPluginSystem().catch(e => console.error('插件系统初始化失败:', e));
 
 /**
  * 模型引擎服务类
@@ -13,7 +28,6 @@ export class ModelEngineService {
     public readonly supervisor: Supervisor;
     private modelConfig: ModelConfig;
     private agentMessages: Message[] = []; // 存储代理消息
-    private toolScheduler: ToolScheduler;
     private stateMachine: StateMachineEngine;
 
     constructor() {
@@ -24,41 +38,17 @@ export class ModelEngineService {
             url: "http://127.0.0.1:1234/v1/chat/completions",
         };
         this.supervisor = new Supervisor(this, this.modelConfig);
-        this.toolScheduler = new ToolScheduler();
         this.stateMachine = new StateMachineEngine(this, this.modelConfig);
-
-        // 注册示例工具
-        this.registerTool('calculator', {
-            description: '执行数学计算',
-            parameters: {
-                expression: '数学表达式，例如：1+2'
-            },
-            handler: async ({ expression }) => {
-                try {
-                    // 安全评估数学表达式
-                    const safeEval = (expr: string) => {
-                        return Function(`'use strict'; return (${expr})`)();
-                    };
-                    return safeEval(expression);
-                } catch (error) {
-                    if (error instanceof Error) {
-                        return `计算错误: ${error.message}`;
-                    } else {
-                        return `计算错误: 未知错误`;
-                    }
-                }
-            }
-        });
     }
 
     /**
      * 终止所有任务
      */
     public terminateTask() {
-        // 终止所有进行中的任务
-        this.toolScheduler.terminateAll();
         // 终止监督器任务循环
         this.supervisor.terminate();
+        // 终止插件系统中的任务
+        toolPlugin.stopProcessing();
 
         // 更新状态机到终止状态
         this.stateMachine.setNextState('terminated', '用户强制终止任务');
@@ -133,89 +123,46 @@ export class ModelEngineService {
         return [...this.agentMessages];
     }
 
+    // 动态生成基础提示词（包含工具列表）
+    private async getBasePowerPrompts(): Promise<string> {
+        try {
+            const tools = await pluginManager.getAllTools();
+            const toolList = tools.map(t => t.name).join(', ') || '无可用工具';
 
-    // 模式专用提示词
-    private toolRegistry: Record<string, {
-        description: string;
-        parameters?: object;
-        handler: (args: any) => Promise<any>;
-    }> = {};
-
-    private readonly basePowerPrompts = `
+            return `
 你是一个综合智能体，你具备 planning 、action 、review 三种模式。
 不同模式的简介：
 planning：根据用户输入进行任务规划，分析并生成下一步的任务指令供 action 执行。
-action：具备如下能力<${Object.keys(this.toolRegistry).join(', ')
-        }>。
+action：具备以下可用工具: ${toolList}。
 review：检查任务执行结果，在review模式中，你能查看到当前页面的所有元素。可以判断运行结果，若判断任务为能完成，可以通过指令输出修改建议。只需要输出下一步建议即可，不需要输出其他内容。
-`
-
-
-    /**
-     * 注册新工具
-     * @param name 工具名称
-     * @param config 工具配置
-     */
-    public registerTool(name: string, config: {
-        description: string;
-        parameters?: object;
-        handler: (args: any) => Promise<any>;
-    }) {
-        this.toolRegistry[name] = config;
-        console.log(`[工具注册] ${name}: ${config.description}`);
+`;
+        } catch (error) {
+            console.error('获取工具列表失败:', error);
+            return `
+你是一个综合智能体，你具备 planning 、action 、review 三种模式。
+不同模式的简介：
+planning：根据用户输入进行任务规划，分析并生成下一步的任务指令供 action 执行。
+action：工具列表获取失败，请检查插件系统。
+review：检查任务执行结果，在review模式中，你能查看到当前页面的所有元素。可以判断运行结果，若判断任务为能完成，可以通过指令输出修改建议。只需要输出下一步建议即可，不需要输出其他内容。
+`;
+        }
     }
 
-    /**
-     * 获取动态动作提示词
-     */
-    private getDynamicActionPrompt(): string {
-        let toolSection = '';
-
-        // 添加 DOM 操作说明
-        const basePrompt = `
-        ${this.basePowerPrompts}
-        当前处于 action 模式
-        
-        请严格按照以下 JSON 格式输出操作指令：
-        {
-          "type": "操作类型", // 可选值：${this.toolRegistry}}
-          ... // 根据类型变化的字段
-        }
-        `;
-
-        // 添加工具调用说明
-        if (Object.keys(this.toolRegistry).length > 0) {
-            toolSection += '\n\n## 可用工具：\n';
-            Object.entries(this.toolRegistry).forEach(([name, tool]) => {
-                toolSection += `- **${name}**: ${tool.description}\n`;
-                if (tool.parameters) {
-                    toolSection += `  参数格式: ${JSON.stringify(tool.parameters)}\n`;
-                }
-            });
-
-            toolSection += `
-            \n## 工具调用格式：
-            {
-              "type": "tool_call",
-              "tool": "工具名称",
-              "parameters": {
-                // 工具特定参数
-              }
-            }`;
-        }
-
-        return basePrompt + toolSection;
-    }
-
-    private readonly modePrompts = {
-        planning: (userinput?: string) => `
-${this.basePowerPrompts}
+    private getModePrompts() {
+        return {
+            planning: async (userinput?: string) => `
+${await this.getBasePowerPrompts()}
 当前处于planning，模式
 当前用户的要求是：${userinput}
-        `,
-        action: () => this.getDynamicActionPrompt(),
-        review: () => `当前处于 review 模式你会在审查模式中检查任务执行结果。请根据当前页面的元素状态和任务要求，判断任务是否完成。若任务没有完成，则给出下一步建议。`
-    };
+            `,
+            action: async () => `
+${await this.getBasePowerPrompts()}
+当前处于 action 模式
+请使用插件系统提供的功能执行操作
+            `,
+            review: () => `当前处于 review 模式你会在审查模式中检查任务执行结果。请根据当前页面的元素状态和任务要求，判断任务是否完成。若任务没有完成，则给出下一步建议。`
+        };
+    }
 
     /**
      * 处理用户目标输入
@@ -305,16 +252,17 @@ ${this.basePowerPrompts}
      */
     async executePlanningInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
         try {
-            console.log('执行规划指令:', instruction, 'ads');
+            console.log('执行规划指令:', instruction);
             const testList = instruction.split(':::');
+            console.log('工具列表', await pluginManager.getAllTools())
             return await this.sendModelRequest([
                 {
                     role: "system",
-                    content: this.modePrompts.planning(instruction)
+                    content: await this.getModePrompts().planning(instruction)
                 },
                 {
                     role: 'user',
-                    content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
+                    content: `当前页面元素列表：\n${domPlugin.queryElements()}`,
                 }, {
                     role: "user",
                     content: '上一步操作的评价为：【' + testList[0] + "】"
@@ -351,14 +299,15 @@ ${this.basePowerPrompts}
     async executeActionInstruction(instruction: string, modelConfig: ModelConfig): Promise<any> {
         try {
             const isModify = await this.judgeUserInput(instruction, '是否是修改操作');
+
             const response = await this.sendModelRequest([
                 {
                     role: "system",
-                    content: this.modePrompts.action()
+                    content: await this.getModePrompts().action()
                 },
                 isModify ? {
                     role: 'user',
-                    content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
+                    content: `当前页面元素列表：\n${domPlugin.queryElements()}`,
                 } : null,
                 {
                     role: "user",
@@ -370,12 +319,14 @@ ${this.basePowerPrompts}
             try {
                 const command = JSON.parse(response);
                 if (command.type === 'tool_call') {
-                    const tool = this.toolRegistry[command.tool];
-                    if (!tool) {
-                        throw new Error(`未注册的工具: ${command.tool}`);
-                    }
-                    console.log(`[工具调用] ${command.tool}`, command.parameters);
-                    const result = await tool.handler(command.parameters);
+                    const result = await pluginManager.executeInstruction({
+                        type: 'tool/execute',
+                        payload: {
+                            toolName: command.tool,
+                            params: command.parameters,
+                            agentId: 'default-agent'
+                        }
+                    });
                     return {
                         tool: command.tool,
                         result
@@ -401,10 +352,10 @@ ${this.basePowerPrompts}
             return await this.sendModelRequest([
                 {
                     role: "system",
-                    content: this.modePrompts.review()
+                    content: this.getModePrompts().review()  // review 方法未使用 getBasePowerPrompts，保持同步
                 }, {
                     role: 'user',
-                    content: `当前页面元素列表：\n${queryElement(document.getElementById('model-instructions') as any)}`,
+                    content: `当前页面元素列表：\n${domPlugin.queryElements()}`,
                 },
                 {
                     role: "user",
@@ -449,6 +400,57 @@ ${this.basePowerPrompts}
             };
         }
     }
+
+    /**
+     * 注册新工具
+     * @param name 工具名称
+     * @param config 工具配置
+     */
+    public registerTool(name: string, config: {
+        description: string;
+        parameters?: object;
+        handler: (args: any) => Promise<any>;
+    }) {
+        // 转发到工具插件
+        toolPlugin.registerTool(name, {
+            execute: async (params: any) => {
+                return config.handler(params);
+            }
+        });
+        console.log(`[工具注册] ${name}: ${config.description} (已转发到插件系统)`);
+    }
+
+    // 处理模型指令（使用插件系统）
+    public async handleInstructions(response: string): Promise<boolean> {
+        try {
+            const instruction = typeof response === 'string' ? JSON.parse(response) : response;
+
+            // 验证指令基本结构
+            if (!instruction.type) {
+                throw new Error("无效指令格式：缺少type");
+            }
+
+            // 转换旧版工具指令到新版格式
+            if (instruction.type === 'dom/tool') {
+                instruction.type = 'tool/execute';
+                instruction.payload = {
+                    toolName: instruction.payload.tool,
+                    params: instruction.payload.params || [],
+                    agentId: 'default-agent'
+                };
+            }
+
+            // 执行指令
+            const result = await pluginManager.executeInstruction(instruction);
+            console.log(`指令执行结果:`, result);
+            return true;
+        } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : "无效JSON指令";
+            console.error(`指令处理失败: ${errorMsg}`);
+            return false;
+        }
+    };
+
 }
 
 // 导出全局服务实例
@@ -465,37 +467,23 @@ async function testToolCalls() {
         "获取天气预报"
     );
 
-    // // 模拟工具调用指令
-    // const toolCallCommand = JSON.stringify({
-    //     type: "tool_call",
-    //     tool: "mcp:weather-server/get_forecast",
-    //     parameters: { city: "北京", days: 3 }
-    // });
+    // 模拟工具调用指令
+    const toolCallCommand = JSON.stringify({
+        type: "tool_call",
+        tool: "mcp:weather-server/get_forecast",
+        parameters: { city: "北京", days: 3 }
+    });
 
-    // // 执行工具调用
-    // console.log("测试工具调用...");
-    // const result = await modelEngineService.executeActionInstruction(
-    //     toolCallCommand,
-    //     modelEngineService.getModelConfig()
-    // );
+    // 执行工具调用
+    console.log("测试工具调用...");
+    const result = await modelEngineService.executeActionInstruction(
+        toolCallCommand,
+        modelEngineService.getModelConfig()
+    );
 
-    // console.log("工具调用结果:", result);
-
-    // // 测试计算器工具
-    // const calculatorCall = JSON.stringify({
-    //     type: "tool_call",
-    //     tool: "calculator",
-    //     parameters: { expression: "2 + 3 * 4" }
-    // });
-
-    // console.log("测试计算器工具...");
-    // const calcResult = await modelEngineService.executeActionInstruction(
-    //     calculatorCall,
-    //     modelEngineService.getModelConfig()
-    // );
-
-    // console.log("计算器结果:", calcResult);
+    console.log("工具调用结果:", result);
 }
 
-// 执行测试
-testToolCalls();
+// 由于插件系统初始化是异步的，我们无法保证在调用时初始化已完成
+// 用户可以在需要时手动调用测试
+// testToolCalls();
