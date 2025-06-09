@@ -1,7 +1,7 @@
 <!--
  * @Date: 2025-06-03 17:18:50
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-09 10:14:59
+ * @LastEditTime: 2025-06-10 05:13:46
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/components/InputController.vue
 -->
 <template>
@@ -44,8 +44,9 @@ defineOptions({
 });
 
 const inputText = ref(
-  // "绘制一张大模型的开发架构图，要充分体现大模型开发过程的不同模块，并且限制绘制区域在 800px * 600px,绘制区域的背景色为极浅的灰色，要求美观色彩多变"
-  "绘制一幅海上生明月，要有意境 颜色柔和.月亮要有光晕。"
+  "绘制一张大模型的开发架构图，要充分体现大模型开发过程的不同模块，并且限制绘制区域在 800px * 600px,绘制区域的背景色为极浅的灰色，要求美观色彩多变"
+  // "绘制一幅海上生明月，要有意境 颜色柔和.月亮要有光晕。"
+  // "在页面的正中间创建一个红色的方块"
 );
 const isRecording = ref(false);
 

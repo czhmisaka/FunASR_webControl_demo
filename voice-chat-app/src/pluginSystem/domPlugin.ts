@@ -23,36 +23,22 @@ export class DOMPlugin implements Plugin {
             throw new Error('DOM 容器未初始化');
         }
 
-        switch (instruction.type) {
+        switch (instruction.tool) {
             case DOMOperation.CREATE:
-                return this.createElement(instruction.payload);
+                return this.createElement(instruction.parameters);
             case DOMOperation.MODIFY:
-                return this.modifyElement(instruction.payload);
+                return this.modifyElement(instruction.parameters);
             case DOMOperation.DELETE:
-                return this.deleteElement(instruction.payload);
+                return this.deleteElement(instruction.parameters);
             case DOMOperation.QUERY:
                 return this.queryElements();
             default:
-                throw new Error(`不支持的 DOM 操作类型: ${instruction.type}`);
+                throw new Error(`不支持的 DOM 操作类型: ${instruction.tool}`);
         }
     }
 
     getTools(): ToolDescriptor[] {
         return [
-            {
-                name: 'clickElement',
-                description: '模拟点击指定选择器的元素',
-                parameters: [{ name: 'selector', type: 'string' }]
-            },
-            {
-                name: 'setInputValue',
-                description: '设置指定输入框的值',
-                parameters: [
-                    { name: 'selector', type: 'string' },
-                    { name: 'value', type: 'string' }
-                ]
-            },
-            // 新增 DOM 操作工具
             {
                 name: 'createElement',
                 description: '创建新元素',
@@ -166,7 +152,9 @@ export class DOMPlugin implements Plugin {
                 attributes,
                 textContent: el.textContent
             };
-        });
+        }).map(x => {
+            return JSON.stringify(x)
+        }).join('\n');
     }
 
     // 内置工具实现

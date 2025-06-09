@@ -40,7 +40,10 @@
 
 <script setup lang="ts">
 import { ref, onBeforeUnmount, computed, onMounted } from "vue";
-import { modelEngineService } from "../modelEngin/modelEngineService";
+import {
+  ModelEngineService,
+  modelEngineService,
+} from "../modelEngin/modelEngineService";
 import Recorder from "recorder-core";
 import MessageList from "../components/MessageList.vue";
 import InputController from "../components/InputController.vue";
@@ -52,6 +55,7 @@ import {
 
 // 导入PCM编码器
 import "recorder-core/src/engine/pcm";
+import { pluginManager } from "../pluginSystem/pluginManager";
 
 const inputText = ref("");
 const messages = ref<{ text: string; type: string; duration?: number }[]>([]);
@@ -160,11 +164,12 @@ const loadModelConfig = () => {
 
 // 设置默认配置
 const setDefaultConfig = () => {
-  modelConfig.value = {
-    url: "http://127.0.0.1:1234/v1/chat/completions",
-    model: "qwen/qwen3-8b", // 使用正确的模型名称格式
-    apiKey: "",
-  };
+  modelConfig.value = new ModelEngineService().getModelConfig();
+  // {
+  //   url: "http://127.0.0.1:1234/v1/chat/completions",
+  //   model: "qwen/qwen3-8b", // 使用正确的模型名称格式
+  //   apiKey: "",
+  // };
   localStorage.setItem("modelConfig", JSON.stringify(modelConfig.value));
 };
 
@@ -187,26 +192,26 @@ const saveModelConfig = (e: any) => {
 const executeGoal = async (goalText: string) => {
   if (!goalText.trim()) return;
 
-  try {
-    messages.value.push({
-      text: `开始执行目标: ${goalText}`,
-      type: "info",
-    });
-    const that = this;
-    await modelEngineService.executeUserGoal(goalText, that);
+  // try {
+  messages.value.push({
+    text: `开始执行目标: ${goalText}`,
+    type: "info",
+  });
+  const that = this;
+  await modelEngineService.executeUserGoal(goalText, that);
 
-    messages.value.push({
-      text: `目标执行完成: ${goalText}`,
-      type: "success",
-    });
-  } catch (error: any) {
-    messages.value.push({
-      text: `目标执行失败: ${error.message || error}`,
-      type: "error",
-    });
-  } finally {
-    goalText = "";
-  }
+  messages.value.push({
+    text: `目标执行完成: ${goalText}`,
+    type: "success",
+  });
+  // } catch (error: any) {
+  //   messages.value.push({
+  //     text: `目标执行失败: ${error.message || error}`,
+  //     type: "error",
+  //   });
+  // } finally {
+  //   goalText = "";
+  // }
 };
 
 // 发送文本消息
@@ -254,7 +259,7 @@ const sendTextMessage = async (text: string) => {
       if (response) {
         aiResponse =
           typeof response === "string" ? response : JSON.stringify(response);
-        aiType = aiResponse.includes("dom/") ? "instruction" : "ai";
+        aiType = aiResponse.includes(`"tool":`) ? "instruction" : "ai";
       } else if (response.error) {
         aiResponse = response.error;
         aiType = "error";
@@ -270,23 +275,34 @@ const sendTextMessage = async (text: string) => {
       });
 
       // 处理可能的指令并添加成功提示
+      console.log(aiType, "aiType", response, "response");
       if (container && aiType == "instruction") {
-        const instructionSuccess = handleDomInstructions(response, container);
-        if (instructionSuccess) {
-          try {
-            const instruction = JSON.parse(response);
-            const actionType = instruction.type.replace("dom/", "");
-            messages.value.push({
-              text: `指令执行成功：完成${actionType}操作`,
-              type: "success",
-            });
-          } catch {
-            messages.value.push({
-              text: "指令执行成功",
-              type: "success",
-            });
+        console.log(await pluginManager.getAllTools(), "所有工具", response);
+        const allTool = await pluginManager.getAllTools();
+        // 处理指令
+        const tool_obj = JSON.parse(response);
+        allTool.forEach((tool: any) => {
+          if (tool.name == tool_obj.tool) {
+            pluginManager.executeInstruction(tool_obj);
           }
-        }
+        });
+
+        // const instructionSuccess = handleDomInstructions(response, container);
+        // if (instructionSuccess) {
+        //   try {
+        //     const instruction = JSON.parse(response);
+        //     const actionType = instruction.type.replace("dom/", "");
+        //     messages.value.push({
+        //       text: `指令执行成功：完成${actionType}操作`,
+        //       type: "success",
+        //     });
+        //   } catch {
+        //     messages.value.push({
+        //       text: "指令执行成功",
+        //       type: "success",
+        //     });
+        //   }
+        // }
       }
     } catch (error: any) {
       console.error("请求失败:", error);

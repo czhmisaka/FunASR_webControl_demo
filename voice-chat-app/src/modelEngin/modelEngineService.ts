@@ -36,7 +36,7 @@ export class ModelEngineService {
             model: "qwen/qwen3-8b",
             apiKey: '',
             // url: "http://127.0.0.1:1234/v1/chat/completions",
-            url: "http://192.168.31.122/v1/chat/completions",
+            url: "http://192.168.31.126:1234/v1/chat/completions",
         };
         this.supervisor = new Supervisor(this, this.modelConfig);
         this.stateMachine = new StateMachineEngine(this, this.modelConfig);
@@ -340,15 +340,8 @@ ${await this.getBasePowerPrompts()}
             // 尝试解析为工具调用指令
             try {
                 const command = JSON.parse(response);
-                if (command.type === 'tool_call') {
-                    const result = await pluginManager.executeInstruction({
-                        type: 'tool/execute',
-                        payload: {
-                            toolName: command.tool,
-                            params: command.parameters,
-                            agentId: 'default-agent'
-                        }
-                    });
+                if (command.tool) {
+                    const result = await pluginManager.executeInstruction(command)
                     return {
                         tool: command.tool,
                         result

@@ -155,37 +155,8 @@ export class AgentBase implements IAgent {
             'action',
             this.modelConfig
         );
-        const parsedResponse = JSON.parse(response);
-        console.log(`[代理 ${this.id}] action响应:`, parsedResponse, typeof parsedResponse);
-
-        // 仅处理DOM指令
-        if (parsedResponse.tool) {
-            const container = document.getElementById('model-instructions');
-            try {
-                // 将指令映射为插件格式
-                const instruction = this.mapToDOMOperation(parsedResponse);
-                // 通过插件执行DOM操作
-                const result = await domPlugin.execute(instruction);
-                return {
-                    executed: true,
-                    result: "DOM指令已执行",
-                    rawResponse: result
-                };
-            } catch (e: any) {
-                console.error(`[代理 ${this.id}] DOM指令执行失败:`, e);
-                return {
-                    executed: false,
-                    result: `执行失败: ${e.message}`,
-                    rawResponse: parsedResponse
-                };
-            }
-        }
-
-        return {
-            executed: false,
-            result: `不支持指令类型: ${parsedResponse.tool || '未定义'}`,
-            rawResponse: parsedResponse
-        };
+        console.log(`[代理 ${this.id}] action响应:`, response, typeof response);
+        return response
     }
 
     /**
@@ -194,6 +165,7 @@ export class AgentBase implements IAgent {
      * @returns 映射后的插件指令
      */
     private mapToDOMOperation(instruction: any): PluginInstruction {
+        console.log(instruction, 'asd')
         const operationMap: Record<string, DOMOperation> = {
             'dom/create': DOMOperation.CREATE,
             'dom/modify': DOMOperation.MODIFY,

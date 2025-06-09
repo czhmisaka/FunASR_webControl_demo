@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-09 13:37:11
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-09 13:37:40
+ * @LastEditTime: 2025-06-10 05:05:12
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/pluginSystem/pluginManager.ts
  */
 import type { Plugin, PluginInstruction, ToolDescriptor, ResourceRequest, ResourceResponse } from './types';
@@ -43,15 +43,29 @@ export class PluginManager {
      * @param instruction 插件指令
      */
     async executeInstruction(instruction: PluginInstruction): Promise<any> {
-        const [namespace] = instruction.type.split('/');
-        const pluginName = `${namespace}-plugin`;
+        const pluginName = instruction.tool
+        let targetPlugin = null as any;
+        Object.keys(this.plugins).map(x => {
+            const module = this.plugins[x];
+            let tools = module.getTools ? module.getTools() : [];
+            tools.map(tool => {
+                if (tool.name === pluginName) {
+                    targetPlugin = module
+                }
+            })
+        })
+        let back = await targetPlugin.execute(instruction)
 
-        const plugin = this.plugins[pluginName];
-        if (!plugin) {
-            throw new Error(`找不到处理 ${instruction.type} 指令的插件`);
+        // console.log(this.plugins, 'asd')
+        // const plugin = this.plugins[pluginName];
+        // if (!plugin) {
+        //     throw new Error(`找不到处理 ${instruction.tool} 指令的插件`);
+        // }
+
+        return {
+            status: 'success',
+            data: back
         }
-
-        return plugin.execute(instruction);
     }
 
     /**

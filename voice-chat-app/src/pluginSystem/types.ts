@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-09 13:27:39
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-09 13:38:24
+ * @LastEditTime: 2025-06-10 04:40:00
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/pluginSystem/types.ts
  */
 /**
@@ -31,9 +31,10 @@ export interface Plugin {
 
 // 统一指令格式
 export interface PluginInstruction {
-    type: string;       // 指令类型，如 "dom/create", "tool/execute"
-    target?: string;    // 操作目标（DOM选择器/工具名）
-    payload: any;       // 指令负载
+    tool: string;       // 工具名称
+    parameters: {
+        [key: string]: any;
+    } // 工具参数
 }
 
 // 工具描述规范
@@ -50,10 +51,10 @@ export interface ToolDescriptor {
 
 // DOM操作类型
 export enum DOMOperation {
-    CREATE = 'dom/create',
-    MODIFY = 'dom/modify',
-    DELETE = 'dom/delete',
-    QUERY = 'dom/query'
+    CREATE = 'createElement',
+    MODIFY = 'modifyElement',
+    DELETE = 'deleteElement',
+    QUERY = 'queryElements'
 }
 
 // 资源访问请求
