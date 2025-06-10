@@ -23,7 +23,8 @@ export class StateMachineEngine implements StateMachine {
         this.initialize();
     }
 
-    private initialize() {
+    public initialize() {
+        this.current_state = 'planning';
         this.state_history = [{
             state: 'planning',
             time: new Date(),

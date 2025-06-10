@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-09 13:27:39
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-10 04:40:00
+ * @LastEditTime: 2025-06-10 17:44:00
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/pluginSystem/types.ts
  */
 /**
@@ -54,7 +54,8 @@ export enum DOMOperation {
     CREATE = 'createElement',
     MODIFY = 'modifyElement',
     DELETE = 'deleteElement',
-    QUERY = 'queryElements'
+    QUERY = 'queryElements',
+    HTML_INPUT = 'createHtml'  // 修改为 createHtml
 }
 
 // 资源访问请求

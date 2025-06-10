@@ -48,17 +48,16 @@ import Recorder from "recorder-core";
 import MessageList from "../components/MessageList.vue";
 import InputController from "../components/InputController.vue";
 import ModelConfigDialog from "../components/ModelConfigDialog.vue";
-import {
-  handleInstructions as handleDomInstructions,
-  queryElement,
-} from "../modelEngin/domOperations";
+import { queryElement } from "../modelEngin/domOperations";
 
 // 导入PCM编码器
 import "recorder-core/src/engine/pcm";
 import { pluginManager } from "../pluginSystem/pluginManager";
 
+import type { Message, MessageGroup, MessageType } from "../modelEngin/types";
+
 const inputText = ref("");
-const messages = ref<{ text: string; type: string; duration?: number }[]>([]);
+const messages = ref<Message[]>([]);
 const isRecording = ref(false);
 const inputMode = ref<"manual" | "voice">("manual");
 const status = ref("idle");
@@ -69,14 +68,9 @@ const modelConfig = ref({
   apiKey: "",
 });
 
-interface MessageGroup {
-  type: string;
-  messages: { text: string; type: string; duration?: number }[];
-}
-
 // 消息分组计算属性
 // 获取代理消息
-const agentMessages = ref(modelEngineService.getAgentMessages());
+const agentMessages = ref<Message[]>(modelEngineService.getAgentMessages());
 
 // 监听代理消息事件
 const handleAgentMessage = (event: CustomEvent) => {
@@ -94,20 +88,25 @@ onBeforeUnmount(() => {
   );
 });
 
-// 合并用户消息和代理消息
+// 合并用户消息和代理消息并按时间排序
 const allMessages = computed(() => {
-  return [...messages.value, ...agentMessages.value];
+  return [...messages.value, ...agentMessages.value].sort(
+    (a, b) => a.timestamp - b.timestamp
+  );
 });
 
 const groupedMessages = computed<MessageGroup[]>(() => {
   const result: MessageGroup[] = [];
   let currentGroup: MessageGroup | null = null;
+  let currentTaskId: string | null = null;
 
   for (const msg of allMessages.value) {
+    // 用户消息始终独立成组
     if (msg.type === "user") {
       if (currentGroup) {
         result.push(currentGroup);
         currentGroup = null;
+        currentTaskId = null;
       }
       result.push({
         type: msg.type,
@@ -116,13 +115,29 @@ const groupedMessages = computed<MessageGroup[]>(() => {
       continue;
     }
 
-    if (currentGroup) {
-      currentGroup.messages.push(msg);
-    } else {
+    // 获取当前消息的任务ID（如果有）
+    const taskId = msg.meta?.agentId || "system";
+
+    // 如果当前组不存在或任务ID发生变化，创建新组
+    if (!currentGroup || currentTaskId !== taskId) {
+      if (currentGroup) {
+        result.push(currentGroup);
+      }
       currentGroup = {
         type: "combined",
         messages: [msg],
       };
+      currentTaskId = taskId;
+    } else {
+      // 在合并消息时保持时间顺序
+      const insertIndex = currentGroup.messages.findIndex(
+        (m) => m.timestamp > msg.timestamp
+      );
+      if (insertIndex === -1) {
+        currentGroup.messages.push(msg);
+      } else {
+        currentGroup.messages.splice(insertIndex, 0, msg);
+      }
     }
   }
 
@@ -185,6 +200,7 @@ const saveModelConfig = (e: any) => {
   messages.value.push({
     text: "模型配置已更新",
     type: "info",
+    timestamp: Date.now(),
   });
 };
 
@@ -196,6 +212,7 @@ const executeGoal = async (goalText: string) => {
   messages.value.push({
     text: `开始执行目标: ${goalText}`,
     type: "info",
+    timestamp: Date.now(),
   });
   const that = this;
   await modelEngineService.executeUserGoal(goalText, that);
@@ -203,9 +220,11 @@ const executeGoal = async (goalText: string) => {
   messages.value.push({
     text: `目标执行完成: ${goalText}`,
     type: "success",
+    timestamp: Date.now(),
   });
   // } catch (error: any) {
   //   messages.value.push({
+
   //     text: `目标执行失败: ${error.message || error}`,
   //     type: "error",
   //   });
@@ -218,7 +237,11 @@ const executeGoal = async (goalText: string) => {
 const sendTextMessage = async (text: string) => {
   if (!text.trim()) return;
 
-  messages.value.push({ text, type: "user" });
+  messages.value.push({
+    text,
+    type: "user",
+    timestamp: Date.now(),
+  });
   const userMessage = text;
   // 判断要求复杂性
   const isComplex = await modelEngineService.judgeUserInput(
@@ -238,11 +261,13 @@ const sendTextMessage = async (text: string) => {
         messages.value.push({
           text: `容器中有${pageContent.split("\n").length}个元素`,
           type: "success",
+          timestamp: Date.now(),
         });
       } else {
         messages.value.push({
           text: "容器中没有元素",
           type: "warning",
+          timestamp: Date.now(),
         });
       }
       // 发送到模型引擎
@@ -269,9 +294,11 @@ const sendTextMessage = async (text: string) => {
         duration = response.duration;
       }
       messages.value.push({
-        text: response,
-        type: aiType,
+        text:
+          typeof response === "string" ? response : JSON.stringify(response),
+        type: aiType as MessageType,
         duration,
+        timestamp: Date.now(),
       });
 
       // 处理可能的指令并添加成功提示
@@ -309,6 +336,7 @@ const sendTextMessage = async (text: string) => {
       messages.value.push({
         text: error.message || "请求失败，请稍后再试",
         type: "error",
+        timestamp: Date.now(),
       });
     }
   } else {
@@ -335,6 +363,7 @@ const handleTerminateTask = () => {
   messages.value.push({
     text: "已强制终止所有任务",
     type: "info",
+    timestamp: Date.now(),
   });
 };
 handleTerminateTask; // 避免未使用的变量警告
@@ -349,13 +378,21 @@ const startSpeechRecognition = async () => {
   try {
     status.value = "recording";
     isRecording.value = true;
-    messages.value.push({ text: "正在录音...", type: "info" });
+    messages.value.push({
+      text: "正在录音...",
+      type: "info",
+      timestamp: Date.now(),
+    });
     inputMode.value = "voice";
 
     // 添加30秒超时自动停止
     const timeoutId = setTimeout(() => {
       if (isRecording.value) {
-        messages.value.push({ text: "录音超时自动停止", type: "warning" });
+        messages.value.push({
+          text: "录音超时自动停止",
+          type: "warning",
+          timestamp: Date.now(),
+        });
         stopRecording();
       }
     }, 30000);
@@ -396,7 +433,11 @@ const startSpeechRecognition = async () => {
 
     recognition.onerror = (error) => {
       console.error("WebSocket错误:", error);
-      messages.value.push({ text: "语音识别连接失败", type: "error" });
+      messages.value.push({
+        text: "语音识别连接失败",
+        type: "error",
+        timestamp: Date.now(),
+      });
       stopRecording();
       clearTimeout(timeoutId);
     };
@@ -423,7 +464,11 @@ const startSpeechRecognition = async () => {
 
     // 确保PCM编码器已加载
     if (!Recorder.Support()) {
-      messages.value.push({ text: "浏览器不支持录音功能", type: "error" });
+      messages.value.push({
+        text: "浏览器不支持录音功能",
+        type: "error",
+        timestamp: Date.now(),
+      });
       stopRecording();
       clearTimeout(timeoutId);
       return;
@@ -434,14 +479,22 @@ const startSpeechRecognition = async () => {
       () => recorder.start(),
       (err: Error) => {
         console.error("录音启动失败:", err);
-        messages.value.push({ text: "录音启动失败", type: "error" });
+        messages.value.push({
+          text: "录音启动失败",
+          type: "error",
+          timestamp: Date.now(),
+        });
         stopRecording();
         clearTimeout(timeoutId);
       }
     );
   } catch (error) {
     console.error("语音识别初始化失败:", error);
-    messages.value.push({ text: "语音识别初始化失败", type: "error" });
+    messages.value.push({
+      text: "语音识别初始化失败",
+      type: "error",
+      timestamp: Date.now(),
+    });
     stopRecording();
   }
 };

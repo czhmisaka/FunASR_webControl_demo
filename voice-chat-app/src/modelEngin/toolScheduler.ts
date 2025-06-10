@@ -70,14 +70,6 @@ export class ToolScheduler {
         // 重置任务队列
         this.taskQueue = new TaskQueue();
     }
-
-    registerTool(toolId: string, toolInstance: any): void {
-        if (this.tools[toolId]) {
-            throw new Error(`工具 ${toolId} 已存在`);
-        }
-        this.tools[toolId] = toolInstance;
-    }
-
     getTasks(): Array<TaskDefinition> {
         return this.taskQueue.queue;
     }

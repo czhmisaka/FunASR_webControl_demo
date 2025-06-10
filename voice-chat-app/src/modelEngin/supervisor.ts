@@ -49,25 +49,7 @@ export class Supervisor {
         this.modelConfig = modelConfig;
         this.stateMachine = new StateMachineEngine(modelService, modelConfig);
         this.toolScheduler = new ToolScheduler();
-
-        // 注册所有DOM操作工具
-        this.toolScheduler.registerTool('dom', {
-            execute: (params: { instruction: string; container: HTMLElement }) => {
-                return handleInstructions(params.instruction, params.container);
-            }
-        });
-
-        // 注册基础DOM操作工具（使用新的注册机制）
-        const domTools = getRegisteredTools();
-        for (const tool of domTools) {
-            this.toolScheduler.registerTool(`dom_${tool.name}`, {
-                execute: (...args: any[]) => {
-                    // 在实际应用中应查找并执行对应工具
-                    // 这里简化处理，实际应调用工具函数
-                    return `Executed ${tool.name} with args: ${args.join(', ')}`;
-                }
-            });
-        }
+        this.resetState();
 
         // 初始化代理
         this.addAgent();
@@ -145,12 +127,16 @@ export class Supervisor {
      * @param goal 用户输入的目标
      */
     async executeGoal(goal: string): Promise<void> {
+        this.resetState();
         this.activeGoal = goal;
         this.isRunning = true;
 
         // 启动任务队列处理器
         this.toolScheduler.startProcessing();
         console.log('[Supervisor] 任务队列处理器已启动');
+
+        // 重置状态
+        this.stateMachine.initialize();
 
         // 解析用户目标为结构化任务
         const task = await this.parseUserGoal(goal);
@@ -226,6 +212,18 @@ export class Supervisor {
         // } finally {
         //     this.stopAll();
         // }
+    }
+
+    /**
+     * 重置所有状态到初始值
+     */
+    private resetState(): void {
+        this.originGoal = null;
+        this.actionGoal = null;
+        this.activeGoal = null;
+        this.isRunning = false;
+        this.agents = [];
+        this.toolScheduler.stopProcessing();
     }
 
     /**

@@ -4,13 +4,11 @@ import { Supervisor } from './supervisor';
 import { StateMachineEngine } from "./stateMachine";
 import { pluginManager } from "../pluginSystem/pluginManager";
 import { domPlugin } from "../pluginSystem/domPlugin";
-import { toolPlugin } from "../pluginSystem/toolPlugin";
 
 // 初始化插件系统
 async function initPluginSystem() {
     // 注册核心插件
     pluginManager.registerPlugin(domPlugin);
-    pluginManager.registerPlugin(toolPlugin);
 
     // 初始化插件
     await pluginManager.initPlugins();
@@ -35,8 +33,13 @@ export class ModelEngineService {
         this.modelConfig = {
             model: "qwen/qwen3-8b",
             apiKey: '',
-            // url: "http://127.0.0.1:1234/v1/chat/completions",
             url: "http://192.168.31.126:1234/v1/chat/completions",
+
+            // url: "http://127.0.0.1:1234/v1/chat/completions",
+
+            // model: "deepseek-chat",
+            // url: "https://api.deepseek.com/v1/chat/completions",
+            // apiKey: "sk-e4352e4d74d1424cb32de795a28a606f"
         };
         this.supervisor = new Supervisor(this, this.modelConfig);
         this.stateMachine = new StateMachineEngine(this, this.modelConfig);
@@ -49,7 +52,6 @@ export class ModelEngineService {
         // 终止监督器任务循环
         this.supervisor.terminate();
         // 终止插件系统中的任务
-        toolPlugin.stopProcessing();
 
         // 更新状态机到终止状态
         this.stateMachine.setNextState('terminated', '用户强制终止任务');
@@ -72,13 +74,6 @@ export class ModelEngineService {
             toolName: string,
             description: string
         ) {
-            modelEngineService.registerTool(`mcp:${serverName}/${toolName}`, {
-                description: `MCP工具: ${description}`,
-                parameters: { type: "object" },
-                handler: async (params: any) => {
-                    return await this.executeMCPCommand(serverName, toolName, params);
-                }
-            });
         }
 
         /**
@@ -109,7 +104,8 @@ export class ModelEngineService {
         const newMessage: Message = {
             text,
             type,
-            meta
+            meta,
+            timestamp: Date.now()
         };
         this.agentMessages.push(newMessage);
         console.log(`[消息推送] 类型:${type}, 内容:${text.substring(0, 50)}...`);
@@ -150,7 +146,7 @@ ${toolList}
             return `
 你是一个综合智能体，具备 planning、action、review 三种模式：
 1. planning 模式：根据用户输入进行任务规划，生成下一步任务指令
-2. action 模式：工具列表获取失败，请检查插件系统
+2. action 模式：使用工具完成任务
 3. review 模式：检查任务执行结果，分析页面元素状态
 `;
         }
@@ -248,7 +244,7 @@ ${await this.getBasePowerPrompts()}
         if (modelConfig.apiKey) {
             headers["Authorization"] = `Bearer ${modelConfig.apiKey}`;
         }
-        console.log('调用大模型 - 模型发送信息', `${messages.map(x => x.content).join('\n')}`)
+        console.log('调用大模型 - 模型发送信息', `${messages.map(x => x.content).join('\n\n\n')}`)
 
         const response = await axios.post(
             modelConfig.url,
@@ -276,7 +272,8 @@ ${await this.getBasePowerPrompts()}
         try {
             console.log('执行规划指令:', instruction);
             const testList = instruction.split(':::');
-            console.log('工具列表', await pluginManager.getAllTools())
+            console.log('工具列表 plan 模式', await pluginManager.getAllTools())
+            const toolList = await pluginManager.getAllTools().then((tools) => tools.map((t) => `[${t.name}]: ${t.description}`).join('\n'));
             return await this.sendModelRequest([
                 {
                     role: "system",
@@ -296,17 +293,17 @@ ${await this.getBasePowerPrompts()}
                 {
                     role: 'user',
                     content: `
-                        操作指令应当是一句话，例如：
-                        1. 创建一个xx色的（方块？圆角矩形？园？都可以），大小为 xxx 像素，使用绝对定位，left:xxx top:xxx，字体颜色为xxx
-                        2. 修改元素 xxx(通常是某个id选择器) 的属性，使其向下移动 xxx px
-                        3. 删除xxx(通常是某个id选择器)
-                        其中，所有style参数都可以使用。
-                        你应当充分利用已有页面元素进行操作。同时避免创建过多的元素！
+                        操作指令应当是一句话, 这句话的作用是明确使用某一个工具去完成你的目的
+                        你可以使用的工具列表如下：
+                        ${toolList}
                     `
                 },
                 {
                     role: "user",
-                    content: "请基于长期目标和已有页面元素进行判读，并给出一个操作指令,你的指令应当明确给出必要信息 /no_think"
+                    content: `请基于长期目标和已有页面元素进行判读，并给出一个操作指令.
+                    这个指令应该是用口语风格描述了你需要工具列表中的一个工具去完成什么任务。
+                    这个任务应当是可以通过一个工具调用一次来完成的。
+                     /no_think`
                 }
             ], modelConfig);
         } catch (error: any) {
@@ -415,26 +412,6 @@ ${await this.getBasePowerPrompts()}
             };
         }
     }
-
-    /**
-     * 注册新工具
-     * @param name 工具名称
-     * @param config 工具配置
-     */
-    public registerTool(name: string, config: {
-        description: string;
-        parameters?: object;
-        handler: (args: any) => Promise<any>;
-    }) {
-        // 转发到工具插件
-        toolPlugin.registerTool(name, {
-            execute: async (params: any) => {
-                return config.handler(params);
-            }
-        });
-        console.log(`[工具注册] ${name}: ${config.description} (已转发到插件系统)`);
-    }
-
     // 处理模型指令（使用插件系统）
     public async handleInstructions(response: string): Promise<boolean> {
         try {

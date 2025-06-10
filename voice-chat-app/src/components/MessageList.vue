@@ -18,18 +18,6 @@
           class="message-item"
           :class="`type-${msg.type}`"
         >
-          <!-- <div
-            class="message-icon"
-            v-if="shouldShowIcon(msg.type)"
-          >
-            <template v-if="msg.type === 'info'">ℹ️</template>
-            <template v-else-if="msg.type === 'error'">❌</template>
-            <template v-else-if="msg.type === 'success'">✅</template>
-            <template v-else-if="msg.type === 'agent-planning'">📝</template>
-            <template v-else-if="msg.type === 'agent-action'">⚡</template>
-            <template v-else-if="msg.type === 'agent-result'">✅</template>
-            <template v-else-if="msg.type === 'agent-state'">🔄</template>
-          </div> -->
           <div class="content-wrapper">
             <div class="message-content">
               {{ formatMessageContent(msg.text, msg.type) }}

@@ -1,7 +1,7 @@
 /*
  * @Date: 2025-06-04 09:29:09
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-09 12:35:30
+ * @LastEditTime: 2025-06-10 23:40:08
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/modelEngin/types.ts
  */
 /**
@@ -116,10 +116,11 @@ export interface Message {
     type: MessageType;
     duration?: number;
     meta?: any; // 用于存储代理消息的元数据
+    timestamp: number; // 添加时间戳字段用于排序
 }
 
 // 消息类型定义
-export type MessageType = 'user' | 'ai' | 'info' | 'error' | 'success' | 'agent-planning' | 'agent-action' | 'agent-result' | 'agent-state';
+export type MessageType = 'user' | 'ai' | 'info' | 'error' | 'success' | 'agent-planning' | 'agent-action' | 'agent-result' | 'agent-state' | 'warning' | 'combined';
 
 // 消息分组类型
 export interface MessageGroup {
@@ -185,7 +186,6 @@ export interface ModelEngineService {
     getModelConfig(): ModelConfig;
     pushAgentMessage(text: string, type: MessageType, meta?: any): void;
     getAgentMessages(): Message[];
-    registerTool(name: string, config: { description: string; parameters?: object; handler: (args: any) => Promise<any>; }): void;
     updateModelConfig(config: ModelConfig): void;
 }
 

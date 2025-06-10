@@ -11,7 +11,7 @@ export class DOMPlugin implements Plugin {
 
     async init() {
         console.log('DOM 插件初始化');
-        this.container = document.getElementById('app');
+        this.container = document.getElementById('model-instructions');
         if (!this.container) {
             console.warn('未找到应用容器元素，将使用 document.body');
             this.container = document.body;
@@ -32,6 +32,8 @@ export class DOMPlugin implements Plugin {
                 return this.deleteElement(instruction.parameters);
             case DOMOperation.QUERY:
                 return this.queryElements();
+            case DOMOperation.HTML_INPUT:   // 新增 HTML 输入工具
+                return this.htmlInput(instruction.parameters);
             default:
                 throw new Error(`不支持的 DOM 操作类型: ${instruction.tool}`);
         }
@@ -40,8 +42,15 @@ export class DOMPlugin implements Plugin {
     getTools(): ToolDescriptor[] {
         return [
             {
+                name: 'createHtml',
+                description: '直接生成 HTML 代码，并嵌入到页面中运行',
+                parameters: [
+                    { name: 'html', type: 'string' }
+                ]
+            },
+            {
                 name: 'createElement',
-                description: '创建新元素',
+                description: `创建新元素，需要指定 tagName 和 attributes，其中 attributes 是一个对象，包含元素的属性和值，需要使用z-index属性确保元素的显示效果,所有的样式效果都需要用style写入。不支持class样式`,
                 parameters: [
                     { name: 'tagName', type: 'string' },
                     { name: 'attributes', type: 'object' },
@@ -51,7 +60,7 @@ export class DOMPlugin implements Plugin {
             },
             {
                 name: 'modifyElement',
-                description: '修改元素属性',
+                description: '修改元素属性，需要指定 selector 和 attributes，其中 attributes 是一个对象，包含元素的属性和值',
                 parameters: [
                     { name: 'selector', type: 'string' },
                     { name: 'attributes', type: 'object' },
@@ -60,7 +69,7 @@ export class DOMPlugin implements Plugin {
             },
             {
                 name: 'deleteElement',
-                description: '删除元素',
+                description: '删除元素，需要指定 selector，一次只能删除一个',
                 parameters: [
                     { name: 'selector', type: 'string' }
                 ]
@@ -136,7 +145,25 @@ export class DOMPlugin implements Plugin {
         return { status: 'success' };
     }
 
+    // 新增 HTML 输入工具实现
+    private htmlInput(payload: any) {
+        if (!payload.html) throw new Error('HtmlInput 缺少必要参数: html');
+
+        // 创建容器元素
+        const container = document.createElement('div');
+        container.id = `html-container-${Date.now()}`;
+
+        // 设置HTML内容
+        container.innerHTML = payload.html;
+
+        // 添加到DOM
+        this.container?.appendChild(container);
+
+        return { id: container.id };
+    }
+
     public queryElements() {
+        this.container = document.getElementById('model-instructions');
         if (!this.container) return [];
 
         return Array.from(this.container.children).map(el => {
