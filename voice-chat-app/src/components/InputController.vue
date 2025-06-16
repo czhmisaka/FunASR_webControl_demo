@@ -1,7 +1,7 @@
 <!--
  * @Date: 2025-06-03 17:18:50
  * @LastEditors: CZH
- * @LastEditTime: 2025-06-10 23:58:32
+ * @LastEditTime: 2025-06-15 17:40:58
  * @FilePath: /AI编程与MCP使用/voice-chat-app/src/components/InputController.vue
 -->
 <template>
@@ -70,7 +70,6 @@ const startSpeechRecognition = () => {
 const openConfigDialog = () => {
   emit("open-config");
 };
-
 const terminateTask = () => {
   emit("terminate-task");
 };

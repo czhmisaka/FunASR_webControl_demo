@@ -81,12 +81,11 @@ export class AgentBase implements IAgent {
                 console.log(`tasktasktasktasktask 执行操作: ${task}`);
                 result = await this.handleAction(task);
                 data = {
-                    executed: result.executed,
-                    result: result.result,
-                    rawResponse: result.rawResponse
+                    executed: JSON.stringify(result),
+                    result
                 };
                 status = result.executed ? 'success' : 'error';
-                nextActions = result.executed ? ['验证执行结果'] : ['重试操作'];
+                console.log(`tasktasktasktasktask 执行结果:`, result);
                 break;
             case SystemMode.REVIEW:
                 result = await this.handleReview(task);
@@ -96,7 +95,6 @@ export class AgentBase implements IAgent {
                     rawResponse: result.rawResponse
                 };
                 status = result.passed ? 'success' : 'partial';
-                nextActions = result.passed ? ['规划下一步'] : ['修复问题'];
                 break;
             default:
                 throw new Error(`未知代理模式: ${this.currentMode}`);
@@ -109,7 +107,6 @@ export class AgentBase implements IAgent {
                 status,
                 data
             },
-            nextActions
         };
     }
 

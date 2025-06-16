@@ -184,9 +184,9 @@ export class Supervisor {
             if (currentState == 'review') {
                 this.actionGoal = result?.result?.data?.result || result?.result?.data.rawResponse;
             }
-
+            console.log(`代理执行结果`, result);
             this.modelService.pushAgentMessage(
-                `代理(${activeAgent.currentMode}) 执行完成: ${result?.result?.data?.result || result?.result?.data.rawResponse}`,
+                `代理(${activeAgent.currentMode}) 执行完成: ${result?.result?.data?.executed || result?.result?.data.rawResponse}`,
                 'agent-result',
                 {
                     agentId: activeAgent.id,
